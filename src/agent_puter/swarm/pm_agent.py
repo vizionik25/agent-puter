@@ -3,8 +3,8 @@ pm_agent.py — Project Manager Agent
 
 Parses project briefs into ordered Task lists, assigns them to execution agents,
 and monitors status throughout the project lifecycle.
-Pattern: LiteLLMModel → pydantic_ai.Agent (same as agent.py)
-.to_a2a() is called in main.py at server startup, not here at import time.
+Pattern: LiteLLMModel → pydantic_ai.Agent → .to_a2a() ASGI app.
+Each agent owns its own A2A app so it can be mounted or run independently.
 """
 import json
 from dotenv import load_dotenv
@@ -34,6 +34,14 @@ Be systematic, realistic about scope, and proactive about risks.
 pm_agent = Agent(
     model=make_model(),
     instructions=_SYSTEM_PROMPT,
+)
+
+# Each agent exposes itself as a self-contained A2A ASGI app.
+from .ceo_agent import BASE_URL
+pm_app = pm_agent.to_a2a(
+    name="PM Agent",
+    url=f"{BASE_URL}/pm",
+    description="Decomposes project briefs into ordered, assignable tasks.",
 )
 
 

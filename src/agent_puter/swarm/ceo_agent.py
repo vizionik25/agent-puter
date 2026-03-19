@@ -2,8 +2,8 @@
 ceo_agent.py — CEO / Orchestrator Agent
 
 Sets macro goals, allocates token budgets, gives final delivery sign-off.
-Pattern: LiteLLMModel → pydantic_ai.Agent (same as agent.py)
-.to_a2a() is called in main.py at server startup, not here at import time.
+Pattern: LiteLLMModel → pydantic_ai.Agent → .to_a2a() ASGI app.
+Each agent owns its own A2A app so it can be mounted or run independently.
 """
 from dotenv import load_dotenv
 from pydantic_ai import Agent
@@ -27,6 +27,15 @@ Be decisive, concise, and business-focused.
 ceo_agent = Agent(
     model=make_model(),
     instructions=_SYSTEM_PROMPT,
+)
+
+# Each agent exposes itself as a self-contained A2A ASGI app.
+# main.py mounts these apps — it does NOT call .to_a2a() itself.
+BASE_URL = "http://localhost:9999"
+ceo_app = ceo_agent.to_a2a(
+    name="CEO Agent",
+    url=BASE_URL,
+    description="Sets strategic goals, allocates token budgets, approves final deliverables.",
 )
 
 

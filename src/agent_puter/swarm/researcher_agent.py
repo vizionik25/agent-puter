@@ -2,8 +2,8 @@
 researcher_agent.py — Researcher Agent
 
 Conducts web research and returns structured summaries for execution agents.
-Pattern: LiteLLMModel → pydantic_ai.Agent (same as agent.py)
-.to_a2a() is called in main.py at server startup, not here at import time.
+Pattern: LiteLLMModel → pydantic_ai.Agent → .to_a2a() ASGI app.
+Each agent owns its own A2A app so it can be mounted or run independently.
 """
 import json
 from dotenv import load_dotenv
@@ -34,6 +34,14 @@ Be thorough, accurate, and cite sources where possible.
 researcher_agent = Agent(
     model=make_model(),
     instructions=_SYSTEM_PROMPT,
+)
+
+# Each agent exposes itself as a self-contained A2A ASGI app.
+from .ceo_agent import BASE_URL
+researcher_app = researcher_agent.to_a2a(
+    name="Researcher Agent",
+    url=f"{BASE_URL}/researcher",
+    description="Performs web research and document summarization.",
 )
 
 

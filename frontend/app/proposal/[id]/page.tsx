@@ -1,3 +1,16 @@
+/**
+ * app/proposal/[id]/page.tsx — Project proposal viewer.
+ *
+ * Fetches the proposal via GET /api/projects/{id}/proposal and renders:
+ *  - Problem statement & solution overview
+ *  - Implementation plan
+ *  - Deliverables list
+ *  - Pricing & timeline grid (estimated hours, ETA, total, deposit)
+ *  - CTA button linking to /pay/{id}/deposit
+ *
+ * Returns a 404-style error card if the proposal is not yet ready
+ * (agency loop still running or not triggered).
+ */
 "use client";
 
 import { useEffect, useState } from "react";

@@ -31,7 +31,7 @@ async def start(request: Request) -> JSONResponse:
 
     client_name = body.get("client_name", "").strip()
     client_email = body.get("client_email", "").strip()
-    initial_message = body.get("message", "").strip()
+    initial_message = body.get("initial_message", body.get("message", "")).strip()
 
     if not client_name or not client_email:
         return JSONResponse(

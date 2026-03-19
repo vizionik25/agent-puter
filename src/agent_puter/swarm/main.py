@@ -29,47 +29,16 @@ from starlette.routing import Mount, Route
 from starlette.responses import JSONResponse
 from starlette.requests import Request
 
-from .ceo_agent import ceo_agent
-from .sales_agent import sales_agent
-from .pm_agent import pm_agent
-from .researcher_agent import researcher_agent
-from .engineer_agent import engineer_agent
-from .qa_agent import qa_agent
+from .ceo_agent import ceo_agent, ceo_app as _ceo_app
+from .sales_agent import sales_agent, sales_app as _sales_app
+from .pm_agent import pm_agent, pm_app as _pm_app
+from .researcher_agent import researcher_agent, researcher_app as _researcher_app
+from .engineer_agent import engineer_agent, engineer_app as _engineer_app
+from .qa_agent import qa_agent, qa_app as _qa_app
 from .api import routes as api_routes
 
-# Build all A2A ASGI apps once at module load
-_BASE_URL = "http://localhost:9999"
-
-_ceo_app = ceo_agent.to_a2a(
-    name="CEO Agent",
-    url=_BASE_URL,
-    description="Sets strategic goals, allocates token budgets, approves final deliverables.",
-)
-_sales_app = sales_agent.to_a2a(
-    name="Sales Agent",
-    url=f"{_BASE_URL}/sales",
-    description="Handles client intake and produces structured project briefs.",
-)
-_pm_app = pm_agent.to_a2a(
-    name="PM Agent",
-    url=f"{_BASE_URL}/pm",
-    description="Decomposes project briefs into ordered, assignable tasks.",
-)
-_researcher_app = researcher_agent.to_a2a(
-    name="Researcher Agent",
-    url=f"{_BASE_URL}/researcher",
-    description="Performs web research and document summarization.",
-)
-_engineer_app = engineer_agent.to_a2a(
-    name="Engineer Agent",
-    url=f"{_BASE_URL}/engineer",
-    description="Writes, reads, and executes code and automated tests.",
-)
-_qa_app = qa_agent.to_a2a(
-    name="QA Agent",
-    url=f"{_BASE_URL}/qa",
-    description="Reviews task output against requirements and coding standards.",
-)
+# All A2A apps are owned by their respective agent modules.
+# main.py mounts them — it does NOT call .to_a2a() itself.
 
 
 @asynccontextmanager

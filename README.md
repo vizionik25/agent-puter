@@ -144,27 +144,42 @@ def calculator(expression: str) -> str:
     """Evaluate a math expression."""
     return str(eval(expression))
 
-# Native A2A server - Pydantic AI handles it automatically
-app = agent.to_a2a()
-    ...
+# Each agent owns its A2A ASGI app — called inside the agent file itself.
+# main.py imports and mounts these; it does NOT call .to_a2a() itself.
+app = agent.to_a2a(name="My Agent", url="http://localhost:9999/myagent",
+                   description="What this agent does.")
 
-# Exposed as an A2A HTTP service at startup:
-# main.py: _my_app = my_agent.to_a2a(name="...", url="...")
+# --- Inter-agent communication uses A2AClient (fasta2a) ---
+# agency.py dispatches ALL agent calls via HTTP, never via .run() directly.
+from fasta2a.client import A2AClient
+
+async def call_pm(prompt: str) -> str:
+    client = A2AClient(base_url="http://localhost:9999/pm")
+    response = await client.send_message(message={
+        "role": "user", "kind": "message",
+        "messageId": "<uuid>",
+        "parts": [{"kind": "text", "text": prompt}],
+    })
+    # result is Task.status.message.parts or Message.parts
+    ...
 ```
 
 ### Agency Loop
 
+All inter-agent calls go through the **A2A protocol** via `fasta2a.client.A2AClient`.
+No direct `.run()` calls — every agent is addressed by its mounted HTTP URL.
+
 ```
 Client request
-  └─► Sales: produce project brief
-        └─► CEO: allocate token budget
-              └─► PM: decompose into tasks
+  └─► Sales Agent          (A2A → POST /sales/)
+        └─► CEO Agent       (A2A → POST /)
+              └─► PM Agent  (A2A → POST /pm/)
                     └─► For each task:
-                          Engineer (or Researcher) executes
-                            └─► QA reviews output
+                          Engineer or Researcher  (A2A → POST /engineer/ or /researcher/)
+                            └─► QA Agent         (A2A → POST /qa/)
                                   ├─ PASS → next task
-                                  └─ FAIL → retry (max 5) → CEO escalates
-                    └─► CEO approves delivery
+                                  └─ FAIL → retry (max 5) → CEO escalates (A2A → POST /)
+                    └─► CEO approves delivery     (A2A → POST /)
 ```
 
 ---
@@ -182,7 +197,7 @@ Client request
 | [`starlette`](https://www.starlette.io) | Lightweight ASGI framework for the REST API |
 | [`uvicorn`](https://www.uvicorn.org) | ASGI server |
 | [`stripe`](https://stripe.com/docs/api) | Stripe SDK for PaymentIntents and webhooks |
-| [`puter-python-sdk`](https://puter.com) | Puter cloud platform integration (KV, AI, storage) |
+| [`puter-python-sdk`](https://puter.com) | Puter cloud platform integration (AI) |
 
 ### Frontend
 
@@ -328,10 +343,10 @@ agent-puter/
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/consult/start` | Start a session. Body: `{client_name, client_email, message}` |
-| `POST` | `/api/consult/{id}/message` | Send a follow-up message. Body: `{message}` |
-| `GET` | `/api/consult/{id}` | Fetch full transcript |
-| `POST` | `/api/consult/{id}/complete` | Complete session → kicks off agency loop → creates Project + Proposal |
+| `POST` | `/api/consult/start` | Start a session. Body: `{client_name, client_email, initial_message}`. Returns `{session_id, reply, status}` |
+| `POST` | `/api/consult/{id}/message` | Send a follow-up message. Body: `{message}`. Returns `{reply, status, project_id?}` |
+| `GET` | `/api/consult/{id}` | Fetch full session transcript |
+| `POST` | `/api/consult/{id}/complete` | **Required** — marks session complete, kicks off agency loop, creates Project + Proposal. Returns `{session_id, project_id, status}` |
 
 ### Projects
 
@@ -426,9 +441,23 @@ PUTER_MODEL=gpt-4o-mini
 
 1. Copy `sales_agent.py` as a template
 2. Define your system prompt and tools
-3. Register in `main.py`: `my_app = my_agent.to_a2a(name="...", url="...")`
-4. Mount it: `Mount("/myagent", app=my_app)`
-5. Add to `Agency._get_agent_for_role()` to make it assignable to tasks
+3. At the bottom of your new file, call `.to_a2a()` directly:
+   ```python
+   from .ceo_agent import BASE_URL
+   my_app = my_agent.to_a2a(name="My Agent", url=f"{BASE_URL}/myagent",
+                             description="What this agent does.")
+   ```
+4. In `main.py`, import your app and mount it:
+   ```python
+   from .my_agent import my_agent, my_app as _my_app
+   # then in routes:
+   Mount("/myagent", app=_my_app)
+   ```
+5. Add to `_AGENT_URLS` in `agency.py` so the orchestrator can dispatch to it via `A2AClient`:
+   ```python
+   "myagent": f"{BASE_URL}/myagent",
+   ```
+6. Add to `Agency._execute_task()` role mapping if it should be assignable to tasks
 
 ### Persist data
 

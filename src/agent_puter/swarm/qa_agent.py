@@ -2,8 +2,8 @@
 qa_agent.py — Quality Assurance / Review Agent
 
 Reviews outputs from execution agents and returns a pass/fail verdict.
-Pattern: LiteLLMModel → pydantic_ai.Agent (same as agent.py)
-.to_a2a() is called in main.py at server startup, not here at import time.
+Pattern: LiteLLMModel → pydantic_ai.Agent → .to_a2a() ASGI app.
+Each agent owns its own A2A app so it can be mounted or run independently.
 """
 import json
 from dotenv import load_dotenv
@@ -42,6 +42,14 @@ Be rigorous. A false PASS wastes client trust.
 qa_agent = Agent(
     model=make_model(),
     instructions=_SYSTEM_PROMPT,
+)
+
+# Each agent exposes itself as a self-contained A2A ASGI app.
+from .ceo_agent import BASE_URL
+qa_app = qa_agent.to_a2a(
+    name="QA Agent",
+    url=f"{BASE_URL}/qa",
+    description="Reviews task output against requirements and coding standards.",
 )
 
 

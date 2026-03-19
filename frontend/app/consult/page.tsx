@@ -1,7 +1,19 @@
+/**
+ * app/consult/page.tsx — Client consultation chat interface.
+ *
+ * Two-phase flow:
+ *   1. "intro" — Collects client_name, client_email, and initial project description.
+ *      Calls POST /api/consult/start → receives session_id + first Sales Agent reply.
+ *   2. "chat"  — Real-time chat loop via POST /api/consult/{id}/message.
+ *      When the agent decides the session is complete (status="complete"),
+ *      POST /api/consult/{id}/complete is called automatically to trigger the
+ *      agency loop (CEO → PM → Engineer → QA) and the user is redirected to
+ *      /proposal/{project_id}.
+ */
 "use client";
 
 import { useState, useRef, useEffect, FormEvent } from "react";
-import { consultStart, consultMessage, ConsultMessage } from "@/lib/api";
+import { consultStart, consultMessage, consultComplete } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 interface Bubble {
@@ -36,8 +48,7 @@ export default function ConsultPage() {
     setError(null);
     try {
       const res = await consultStart({ client_name: name, client_email: email, initial_message: firstMsg });
-      setSessionId(res.session.id);
-      setProjectId(res.session.project_id);
+      setSessionId(res.session_id);
       setBubbles([
         { role: "user", content: firstMsg },
         { role: "agent", content: res.reply },
@@ -59,10 +70,18 @@ export default function ConsultPage() {
     setLoading(true);
     try {
       const res = await consultMessage(sessionId, { message: msg });
-      setProjectId(res.session.project_id);
       setBubbles((b) => [...b, { role: "agent", content: res.reply }]);
-      if (res.session.project_id && res.session.status === "complete") {
-        setTimeout(() => router.push(`/proposal/${res.session.project_id}`), 1200);
+      // If the session just completed, trigger the agency loop then redirect
+      if (res.status === "complete" && sessionId) {
+        try {
+          const completed = await consultComplete(sessionId);
+          setProjectId(completed.project_id);
+          setTimeout(() => router.push(`/proposal/${completed.project_id}`), 1200);
+        } catch {
+          // complete may already have been called; ignore
+        }
+      } else if (res.project_id) {
+        setProjectId(res.project_id);
       }
     } catch (err: unknown) {
       setBubbles((b) => [...b, { role: "agent", content: "⚠️ Connection error. Please try again." }]);

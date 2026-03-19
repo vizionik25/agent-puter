@@ -1,3 +1,18 @@
+/**
+ * app/pay/[id]/final/page.tsx — Stripe final balance payment page (80%).
+ *
+ * On mount, simultaneously calls:
+ *   - POST /api/payments/final     → receives Stripe client_secret
+ *     (backend returns 400 if deposit is not yet paid)
+ *   - GET  /api/projects/{id}/proposal → receives final_amount_usd
+ *   - GET  /api/payments/{id}/status   → checks deposit_paid flag
+ *
+ * If deposit_paid is false, renders a redirect card to /pay/{id}/deposit
+ * rather than the payment form.
+ *
+ * FinalForm — inner component that owns Stripe hooks and submit logic.
+ * FinalPayPage — outer component that owns data fetching and guard logic.
+ */
 "use client";
 
 import { useEffect, useState } from "react";

@@ -4,15 +4,18 @@ agency.py — Agency Orchestrator
 The Agency class owns the autonomous business loop:
   Client Request → Sales → Project Brief → PM → Tasks → Execution → QA → Delivery
 
-Agents are called directly as pydantic-ai Agent instances (not via HTTP).
-In production, swap in the A2A HTTP client to call remote agent services.
+ALL agent calls go through the A2A protocol via fasta2a.A2AClient.
+No direct pydantic-ai .run() calls — every agent is addressed by its HTTP URL.
 """
 from __future__ import annotations
 
 import json
+import uuid
 import asyncio
 from datetime import datetime
 from typing import Optional
+
+from fasta2a.client import A2AClient
 
 from .models import (
     AgencyDeps,
@@ -21,23 +24,79 @@ from .models import (
     Task,
     TaskStatus,
 )
+from .ceo_agent import BASE_URL
 
-# Import agent instances directly (no network calls at import time)
-from .ceo_agent import ceo_agent
-from .sales_agent import sales_agent
-from .pm_agent import pm_agent
-from .researcher_agent import researcher_agent
-from .engineer_agent import engineer_agent
-from .qa_agent import qa_agent
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _text_message(text: str) -> dict:
+    """Build a minimal A2A Message with a single TextPart."""
+    return {
+        "role": "user",
+        "kind": "message",
+        "messageId": str(uuid.uuid4()),
+        "parts": [{"kind": "text", "text": text}],
+    }
+
+
+async def _call_agent(base_url: str, prompt: str) -> str:
+    """
+    Send a prompt to an agent via the A2A protocol and return the response text.
+
+    Args:
+        base_url: The base URL of the target agent (e.g. "http://localhost:9999/pm").
+        prompt:   The plain-text prompt to send.
+
+    Returns the agent's text response, or an empty string on failure.
+    """
+    client = A2AClient(base_url=base_url)
+    try:
+        response = await client.send_message(message=_text_message(prompt))
+        # SendMessageResponse is JSONRPCResponse[Union[Task, Message], JSONRPCError]
+        # Access result — may be a Task (has 'status') or a Message (has 'parts' directly).
+        result = response.get("result")  # type: ignore[union-attr]
+        if result is None:
+            return ""
+        # Task path: result["status"]["message"]["parts"]
+        if "status" in result:
+            msg = result["status"].get("message", {})
+            parts = msg.get("parts", []) if msg else []
+        else:
+            # Message path: result["parts"]
+            parts = result.get("parts", [])
+        texts = [p["text"] for p in parts if p.get("kind") == "text"]
+        return "\n".join(texts)
+    except Exception as exc:
+        print(f"[Agency][A2A] Error calling {base_url}: {exc}")
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# Agent URL map
+# ---------------------------------------------------------------------------
+
+_AGENT_URLS: dict[str, str] = {
+    "ceo":        f"{BASE_URL}",
+    "sales":      f"{BASE_URL}/sales",
+    "pm":         f"{BASE_URL}/pm",
+    "researcher": f"{BASE_URL}/researcher",
+    "engineer":   f"{BASE_URL}/engineer",
+    "qa":         f"{BASE_URL}/qa",
+}
+
+
+# ---------------------------------------------------------------------------
+# Agency
+# ---------------------------------------------------------------------------
 
 class Agency:
     """
     Autonomous AI consulting agency orchestrator.
 
-    Wires together all specialized agents into a coherent business loop.
-    Each agent is called via .run() (pydantic-ai in-process).
-    In production, replace with A2A HTTP client calls to remote agent services.
+    All agent communication goes through the A2A protocol via A2AClient.
+    Each agent is addressed by its mounted URL on the shared Starlette server.
     """
 
     def __init__(self, deps: AgencyDeps) -> None:
@@ -55,31 +114,27 @@ class Agency:
         """
         Intake a new client request and create a Project.
 
-        1. Sales agent parses the request and produces a brief.
-        2. CEO agent allocates a token budget.
-        3. PM agent breaks the brief into tasks.
+        1. Sales agent parses the request and produces a brief (via A2A).
+        2. CEO agent allocates a token budget (via A2A).
+        3. PM agent breaks the brief into tasks (via A2A).
         4. Project is stored in deps.projects and returned.
-
-        Args:
-            request_text: The raw client request string.
-            client_id: Unique identifier for the client.
-
-        Returns a dict with project_id and initial status.
         """
         print(f"[Agency] Received request from {client_id}: {request_text[:80]}...")
 
-        # --- Step 1: Sales agent creates a project brief ---
-        brief_result = await sales_agent.run(
+        # --- Step 1: Sales agent creates a project brief (A2A) ---
+        brief_text = await _call_agent(
+            _AGENT_URLS["sales"],
             f"Create a project brief for this client request:\n\n{request_text}",
         )
-        print(f"[Agency][Sales] Brief: {str(brief_result.output)[:200]}")
+        print(f"[Agency][Sales→A2A] Brief: {brief_text[:200]}")
 
-        # --- Step 2: CEO allocates budget ---
-        budget_result = await ceo_agent.run(
+        # --- Step 2: CEO allocates budget (A2A) ---
+        budget_text = await _call_agent(
+            _AGENT_URLS["ceo"],
             "Allocate a token budget for a new mid-complexity project. "
-            "Call allocate_budget with project_id='new' and requested_tokens=75000."
+            "Call allocate_budget with project_id='new' and requested_tokens=75000.",
         )
-        print(f"[Agency][CEO] Budget: {str(budget_result.output)[:200]}")
+        print(f"[Agency][CEO→A2A] Budget: {budget_text[:200]}")
 
         # --- Step 3: Create the Project object ---
         project = Project(
@@ -90,15 +145,16 @@ class Agency:
             budget_tokens=75_000,
         )
 
-        # --- Step 4: PM agent creates task list ---
-        task_result = await pm_agent.run(
+        # --- Step 4: PM agent creates task list (A2A) ---
+        task_text = await _call_agent(
+            _AGENT_URLS["pm"],
             f"Create a task list for this project:\n\n{request_text}\n\n"
-            f"Project ID: {project.id}"
+            f"Project ID: {project.id}",
         )
-        print(f"[Agency][PM] Tasks: {str(task_result.output)[:200]}")
+        print(f"[Agency][PM→A2A] Tasks: {task_text[:200]}")
 
         # Parse tasks from PM output if JSON is present
-        task_json = _extract_json(str(task_result.output))
+        task_json = _extract_json(task_text)
         if task_json and "tasks" in task_json:
             for t in task_json["tasks"]:
                 project.tasks.append(Task(
@@ -108,7 +164,6 @@ class Agency:
                 ))
 
         if not project.tasks:
-            # Fallback — ensure there's at least one task
             project.tasks.append(Task(
                 title="Implement Request",
                 description=request_text,
@@ -129,10 +184,10 @@ class Agency:
         Run the execution → QA loop for all pending tasks in a project.
 
         For each task:
-          1. Dispatch to the appropriate execution agent.
-          2. QA agent reviews the output.
+          1. Dispatch to the appropriate execution agent (via A2A).
+          2. QA agent reviews the output (via A2A).
           3. If QA fails, retry up to max_qa_retries times.
-          4. If all retries exhausted, escalate to CEO.
+          4. If all retries exhausted, escalate to CEO (via A2A).
         """
         print(f"\n[Agency] Processing project: {project.name}")
 
@@ -146,33 +201,34 @@ class Agency:
         project.updated_at = datetime.utcnow()
 
         if all_done:
-            await ceo_agent.run(
+            await _call_agent(
+                _AGENT_URLS["ceo"],
                 f"Approve delivery for project {project.id}. "
                 f"Tasks completed: {len(project.tasks)}. "
-                "Call approve_delivery with a brief summary."
+                "Call approve_delivery with a brief summary.",
             )
-            print(f"[Agency][CEO] Project {project.id} approved for delivery.")
+            print(f"[Agency][CEO→A2A] Project {project.id} approved for delivery.")
 
     async def _execute_task(self, task: Task, project: Project) -> None:
-        """Execute a single task with QA feedback loop."""
+        """Execute a single task with QA feedback loop, all via A2A."""
         task.status = TaskStatus.IN_PROGRESS
         task.updated_at = datetime.utcnow()
 
-        agent = self._get_agent_for_role(task.assigned_to or "engineer")
+        agent_url = _AGENT_URLS.get(task.assigned_to or "engineer", _AGENT_URLS["engineer"])
 
         while task.retry_count <= self.deps.max_qa_retries:
             print(f"  [Agency] Executing task '{task.title}' "
-                  f"(attempt {task.retry_count + 1})")
+                  f"(attempt {task.retry_count + 1}) via A2A → {agent_url}")
 
             prompt = task.description
             if task.qa_feedback:
                 prompt += f"\n\nQA FEEDBACK (please address):\n{task.qa_feedback}"
 
-            exec_result = await agent.run(prompt)
-            task.output = str(exec_result.output)
+            # Dispatch to execution agent via A2A
+            task.output = await _call_agent(agent_url, prompt)
             task.status = TaskStatus.REVIEW
 
-            # QA review
+            # QA review via A2A
             qa_prompt = (
                 f"Review the following output for task: '{task.title}'\n\n"
                 f"Task requirements: {task.description}\n\n"
@@ -180,44 +236,33 @@ class Agency:
                 "Use the review_output and check_standards tools, then give a "
                 "clear PASS or FAIL verdict in your response."
             )
-            qa_result = await qa_agent.run(qa_prompt)
-            qa_text = str(qa_result.output).lower()
-            passed = "pass" in qa_text and "fail" not in qa_text
+            qa_text = await _call_agent(_AGENT_URLS["qa"], qa_prompt)
+            passed = "pass" in qa_text.lower() and "fail" not in qa_text.lower()
 
             if passed:
                 task.status = TaskStatus.DONE
                 task.updated_at = datetime.utcnow()
-                print(f"  [Agency][QA] Task '{task.title}' PASSED ✓")
+                print(f"  [Agency][QA→A2A] Task '{task.title}' PASSED ✓")
                 return
 
             task.retry_count += 1
-            task.qa_feedback = str(qa_result.output)
-            print(f"  [Agency][QA] Task '{task.title}' FAILED — "
+            task.qa_feedback = qa_text
+            print(f"  [Agency][QA→A2A] Task '{task.title}' FAILED — "
                   f"retry {task.retry_count}/{self.deps.max_qa_retries}")
 
-        # Exhausted retries — escalate to CEO
+        # Exhausted retries — escalate to CEO via A2A
         task.status = TaskStatus.FAILED
-        await ceo_agent.run(
+        await _call_agent(
+            _AGENT_URLS["ceo"],
             f"Task '{task.title}' in project {project.id} failed after "
-            f"{self.deps.max_qa_retries} QA retries. "
-            "Decide next action."
+            f"{self.deps.max_qa_retries} QA retries. Decide next action.",
         )
-        print(f"  [Agency] Task '{task.title}' FAILED after max retries — escalated to CEO.")
-
-    def _get_agent_for_role(self, role: str):
-        """Map a role name to the corresponding pydantic-ai Agent instance."""
-        return {
-            "engineer":   engineer_agent,
-            "researcher": researcher_agent,
-            "qa":         qa_agent,
-            "ceo":        ceo_agent,
-        }.get(role, engineer_agent)
+        print(f"  [Agency] Task '{task.title}' FAILED after max retries — escalated to CEO via A2A.")
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
 
 def _extract_json(text: str) -> Optional[dict]:
     """Extract the first JSON object found in a string."""

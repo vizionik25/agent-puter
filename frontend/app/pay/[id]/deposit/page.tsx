@@ -1,3 +1,17 @@
+/**
+ * app/pay/[id]/deposit/page.tsx — Stripe deposit payment page (20%).
+ *
+ * On mount, simultaneously calls:
+ *   - POST /api/payments/deposit  → receives Stripe client_secret
+ *   - GET  /api/projects/{id}/proposal → receives deposit_amount_usd
+ *
+ * Renders a Stripe Elements form (PaymentElement) pre-loaded with the
+ * client_secret. On confirmation, Stripe redirects to /status/{id}
+ * via confirmParams.return_url.
+ *
+ * DepositForm — inner component that owns Stripe hooks and submit logic.
+ * DepositPage — outer component that owns data fetching and passes props down.
+ */
 "use client";
 
 import { useEffect, useState } from "react";

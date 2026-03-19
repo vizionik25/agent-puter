@@ -10,7 +10,8 @@ async def main():
     # Initialize dependencies
     deps = AgencyDeps(
         puter_token=os.getenv("PUTER_AUTH_TOKEN"),
-        model_name=os.getenv("PUTER_MODEL")
+        model_name=os.getenv("PUTER_MODEL"),
+        base_url=os.getenv("PUTER_BASE_URL")
     )
     
     # Initialize agency

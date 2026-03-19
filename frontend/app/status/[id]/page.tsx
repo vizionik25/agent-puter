@@ -1,3 +1,16 @@
+/**
+ * app/status/[id]/page.tsx — Project status dashboard.
+ *
+ * Polls GET /api/projects/{id} and GET /api/payments/{id}/status every 8 seconds
+ * to display real-time progress across the five project phases:
+ *   intake → planning → execution → qa → delivered
+ *
+ * Shows:
+ *  - Phase progress bar with step indicators
+ *  - Per-task status list (pending / in_progress / review / done / failed)
+ *  - Payment status cards (20% deposit, 80% balance)
+ *  - Contextual CTAs: Pay Deposit, View Demo, Pay Balance
+ */
 "use client";
 
 import { useEffect, useState, useCallback } from "react";

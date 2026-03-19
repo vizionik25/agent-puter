@@ -1,3 +1,17 @@
+/**
+ * app/demo/[id]/page.tsx — Live project demo viewer.
+ *
+ * Access control:
+ *   - Checks GET /api/payments/{id}/status first.
+ *   - If deposit_paid is false → shows locked state with link to /pay/{id}/deposit.
+ *   - If deposit_paid is true  → fetches GET /api/projects/{id}/demo.
+ *
+ * Rendering modes (determined by the demo_url value):
+ *   - URL (starts with "http") → renders an <iframe> sandbox + "Open ↗" link.
+ *   - Plain text / notes       → renders a <pre> block (useful for text-only demos).
+ *
+ * The toolbar always shows a "Pay Balance & Receive →" CTA linking to /pay/{id}/final.
+ */
 "use client";
 
 import { useEffect, useState } from "react";

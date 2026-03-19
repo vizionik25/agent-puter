@@ -2,8 +2,8 @@
 engineer_agent.py — Software Engineer Agent
 
 Writes code, runs tests, and produces file artifacts.
-Pattern: LiteLLMModel → pydantic_ai.Agent (same as agent.py)
-.to_a2a() is called in main.py at server startup, not here at import time.
+Pattern: LiteLLMModel → pydantic_ai.Agent → .to_a2a() ASGI app.
+Each agent owns its own A2A app so it can be mounted or run independently.
 """
 import json
 import subprocess
@@ -38,6 +38,14 @@ If you receive QA feedback, address every point systematically before resubmitti
 engineer_agent = Agent(
     model=make_model(),
     instructions=_SYSTEM_PROMPT,
+)
+
+# Each agent exposes itself as a self-contained A2A ASGI app.
+from .ceo_agent import BASE_URL
+engineer_app = engineer_agent.to_a2a(
+    name="Engineer Agent",
+    url=f"{BASE_URL}/engineer",
+    description="Writes, reads, and executes code and automated tests.",
 )
 
 
