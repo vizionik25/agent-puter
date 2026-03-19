@@ -10,6 +10,8 @@
 
 [![Python](https://img.shields.io/badge/Python-3.14+-3776ab?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js)](https://nextjs.org)
+[![PyPI](https://img.shields.io/pypi/v/agent-puter?style=flat-square&logo=pypi&logoColor=white&color=006dad)](https://pypi.org/project/agent-puter/)
+[![Frontend Repo](https://img.shields.io/badge/frontend-agent--puter--frontend-blueviolet?style=flat-square&logo=github)](https://github.com/vizionik25/agent-puter-frontend)
 [![License: MIT](https://img.shields.io/badge/License-MIT-violet?style=flat-square)](LICENSE)
 [![uv](https://img.shields.io/badge/package%20manager-uv-orange?style=flat-square)](https://github.com/astral-sh/uv)
 
@@ -219,7 +221,22 @@ Client request
 - A [Stripe](https://stripe.com) account (test keys work fine)
 - A FREE puter.js Auth Token to take advantage of Puter's free inference
 
-### 1. Clone & install
+### 1. Install the backend
+
+**Option A — install from PyPI (recommended):**
+
+```bash
+# CLI / standalone — installs globally so `agent-puter` is on your PATH (no venv needed)
+uv tool install agent-puter
+
+# Library / project dependency — adds it to your own project's pyproject.toml
+uv add agent-puter
+
+# pip fallback (activate your venv first)
+pip install agent-puter
+```
+
+**Option B — clone and run from source:**
 
 ```bash
 git clone https://github.com/vizionik25/agent-puter.git
@@ -274,6 +291,20 @@ uvicorn agent_puter.swarm.main:app --host 0.0.0.0 --port 9999 --reload
 
 ### 4. Start the frontend
 
+**Option A — clone the frontend repo standalone** (no Python tooling needed):
+
+```bash
+git clone https://github.com/vizionik25/agent-puter-frontend.git
+cd agent-puter-frontend
+npm install
+npm run dev
+# → http://localhost:3000
+```
+
+See the [frontend README](https://github.com/vizionik25/agent-puter-frontend#readme) for full standalone setup, Docker, and Vercel deploy instructions.
+
+**Option B — use `frontend/` from the full monorepo clone:**
+
 ```bash
 cd frontend
 npm install   # first time only
@@ -317,6 +348,8 @@ agent-puter/
 │           └── payments.py      /api/payments/* routes (Stripe)
 │
 ├── frontend/                    Next.js 16 client portal
+│   │                            Also available as a standalone repo:
+│   │                            github.com/vizionik25/agent-puter-frontend
 │   ├── app/
 │   │   ├── layout.tsx           Root layout + nav
 │   │   ├── globals.css          Design system (dark navy + violet)
@@ -328,7 +361,7 @@ agent-puter/
 │   │   ├── demo/[id]/           Demo viewer (gated)
 │   │   └── status/[id]/         Live progress tracker
 │   ├── lib/api.ts               Typed REST API client
-│   └── next.config.ts           API proxy → localhost:9999
+│   └── next.config.ts           API proxy → NEXT_PUBLIC_API_URL
 │
 ├── pyproject.toml
 ├── .env                         ← create this (not committed)

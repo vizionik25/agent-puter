@@ -1,6 +1,6 @@
 [project]
 name = "agent-puter"
-version = "0.2.0"
+version = "0.2.5"
 description = "Autonomous AI consulting agency — a swarm of specialized agents built on pydantic-ai, litellm, and Puter.js"
 readme = "README.md"
 authors = [
