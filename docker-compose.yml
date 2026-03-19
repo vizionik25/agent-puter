@@ -14,7 +14,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: Dockerfile
     image: agent-puter/backend:latest
     container_name: agent_puter_backend
     restart: unless-stopped
@@ -36,8 +36,8 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./frontend
+      dockerfile: Dockerfile
       args:
         # The browser makes API calls through Next.js rewrites — so this is
         # the *internal* Docker network address of the backend, not localhost.

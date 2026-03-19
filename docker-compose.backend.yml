@@ -14,7 +14,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: Dockerfile
     image: agent-puter/backend:latest
     container_name: agent_puter_backend
     restart: unless-stopped

@@ -420,50 +420,74 @@ Client                     Frontend              Backend              Stripe
 
 ### Swap LLMs
 
-Edit `src/agent_puter/swarm/base_agent.py` — uses `litellm` format:
+All agents share `src/agent_puter/swarm/base_agent.py`, which constructs a
+[`LiteLLMModel`](https://github.com/pydantic/pydantic-ai) from
+`pydantic-ai-litellm` and passes it to every `pydantic_ai.Agent`.
+
+**`LiteLLMModel` constructor** (from the installed package):
 
 ```python
-# OpenAI
-PUTER_MODEL=gpt-4o
+LiteLLMModel(
+    model_name: str,           # required — litellm model string
+    *,
+    api_key: str | None,       # optional — provider API key
+    api_base: str | None,      # optional — custom endpoint URL
+    custom_llm_provider: str | None,  # optional — force-sets the provider
+    settings: ModelSettings | None,
+)
+```
 
-# Gemini via litellm
-PUTER_MODEL=gemini/gemini-2.0-flash
+**How `base_agent.py` wires it** — three env vars are **all required**,
+an `EnvironmentError` is raised at startup if any are missing:
 
-# Anthropic
-PUTER_MODEL=claude-3-5-sonnet-20241022
+```bash
+# .env
+PUTER_MODEL=openai/claude-sonnet-4-5        # litellm model string
+PUTER_AUTH_TOKEN=your_puter_session_token   # passed as api_key
+PUTER_API_BASE=https://api.puter.com/puterai/openai/v1  # passed as api_base
+```
 
-# Puter (free inference)
-PUTER_AUTH_TOKEN=...
-PUTER_MODEL=gpt-4o-mini
+`custom_llm_provider` is hard-coded to `"openai"` in `base_agent.py` because
+Puter exposes an OpenAI-compatible endpoint. To switch to a different provider,
+update `make_model()` directly — for example, to call Anthropic natively:
+
+```python
+return LiteLLMModel(
+    model_name="claude-3-5-sonnet-20241022",
+    api_key=os.getenv("ANTHROPIC_API_KEY"),
+    # api_base and custom_llm_provider not needed — litellm auto-detects Anthropic
+)
 ```
 
 ### Add a new agent
 
-1. Copy `sales_agent.py` as a template
-2. Define your system prompt and tools
-3. At the bottom of your new file, call `.to_a2a()` directly:
+1. Copy `sales_agent.py` as a template.
+2. Define your system prompt and tools.
+3. At the bottom of your new file, call `.to_a2a()`:
    ```python
    from .ceo_agent import BASE_URL
    my_app = my_agent.to_a2a(name="My Agent", url=f"{BASE_URL}/myagent",
                              description="What this agent does.")
    ```
-4. In `main.py`, import your app and mount it:
+4. In `main.py`, import and mount it:
    ```python
    from .my_agent import my_agent, my_app as _my_app
-   # then in routes:
-   Mount("/myagent", app=_my_app)
+   # add to lifespan context managers:
+   async with _my_app.task_manager:
+       ...
+   # add to routes:
+   Mount("/myagent", app=_my_app),
    ```
-5. Add to `_AGENT_URLS` in `agency.py` so the orchestrator can dispatch to it via `A2AClient`:
+5. Add to `_AGENT_URLS` in `agency.py` so `A2AClient` can dispatch to it:
    ```python
    "myagent": f"{BASE_URL}/myagent",
    ```
-6. Add to `Agency._execute_task()` role mapping if it should be assignable to tasks
 
 ### Persist data
 
-The default in-memory store (`api/_store.py`) is intentionally simple. For production:
-- Replace `_store.sessions` / `_store.projects` with Puter KV, Redis, or a database
-- `AgencyDeps.puter_token` is already wired for Puter KV integration
+The in-memory store (`api/_store.py`) is two plain dicts — `sessions` and
+`projects` — that are reset on every restart. For production, replace them
+with a durable store (Redis, PostgreSQL, Puter KV, etc.).
 
 ---
 
@@ -476,6 +500,18 @@ The default in-memory store (`api/_store.py`) is intentionally simple. For produ
 
 ```bash
 cp .env.example .env   # fill in PUTER_AUTH_TOKEN, STRIPE keys, etc.
+```
+
+**Docker file layout:**
+
+```
+agent-puter/
+├── Dockerfile                   # backend (Python 3.14 + uv)
+├── docker-compose.yml           # full stack (backend + frontend)
+├── docker-compose.backend.yml   # backend only
+└── frontend/
+    ├── Dockerfile               # frontend (Next.js 16 standalone)
+    └── docker-compose.yml       # frontend only
 ```
 
 > [!IMPORTANT]
@@ -523,9 +559,10 @@ running backend (e.g. `https://api.yourdomain.com`).
 Use when the backend is already running on another host.
 
 ```bash
+cd frontend/
 NEXT_PUBLIC_API_URL=https://api.yourdomain.com \
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_... \
-docker compose -f docker-compose.frontend.yml up --build -d
+docker compose up --build -d
 ```
 
 ---

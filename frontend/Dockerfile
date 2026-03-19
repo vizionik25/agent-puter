@@ -7,7 +7,7 @@ FROM node:22-slim AS deps
 WORKDIR /app
 
 # Copy manifests only — bust cache only when deps change
-COPY frontend/package.json frontend/package-lock.json ./
+COPY package.json package-lock.json ./
 
 RUN npm ci --omit=dev
 
@@ -24,7 +24,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 
 # Copy full frontend source
-COPY frontend/ ./
+COPY . ./
 
 # Build args — injected at build time so Next.js can embed them
 ARG NEXT_PUBLIC_API_URL=http://localhost:9999
