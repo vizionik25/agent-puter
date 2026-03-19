@@ -1,0 +1,28 @@
+# docker-compose.frontend.yml — Frontend only.
+#
+# Use when:
+#   - The backend is already running elsewhere (another host / docker-compose)
+#   - You want to serve the Next.js client independently
+#
+# Set NEXT_PUBLIC_API_URL to the *publicly reachable* backend URL before building.
+#
+# Usage:
+#   NEXT_PUBLIC_API_URL=https://api.yourdomain.com \
+#   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_... \
+#   docker compose -f docker-compose.frontend.yml up --build -d
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:9999}"
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}"
+    image: agent-puter/frontend:latest
+    container_name: agent_puter_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:9999}"

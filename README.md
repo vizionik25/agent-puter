@@ -467,6 +467,100 @@ The default in-memory store (`api/_store.py`) is intentionally simple. For produ
 
 ---
 
+## Docker Deployment
+
+> **Recommended for production.** All services run in isolated containers with
+> minimal, non-root images.
+
+### Prerequisites
+
+```bash
+cp .env.example .env   # fill in PUTER_AUTH_TOKEN, STRIPE keys, etc.
+```
+
+> [!IMPORTANT]
+> `NEXT_PUBLIC_API_URL` must be set **before** building the frontend image — Next.js
+> embeds it at build time. Use `http://backend:9999` for the full-stack compose, or
+> your public API URL for separate deployments.
+
+---
+
+### Option 1 — Full stack on one machine
+
+Spins up both the Python backend (port 9999) and Next.js frontend (port 3000)
+on a shared Docker bridge network. The frontend waits for the backend health-check
+before starting.
+
+```bash
+docker compose up --build -d
+```
+
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:9999 |
+| CEO Agent A2A | http://localhost:9999/ |
+| Sales Agent A2A | http://localhost:9999/sales/ |
+| PM Agent A2A | http://localhost:9999/pm/ |
+
+---
+
+### Option 2 — Backend only
+
+Use when the frontend is deployed to Vercel / Netlify or run locally with `npm run dev`.
+
+```bash
+docker compose -f docker-compose.backend.yml up --build -d
+```
+
+Set `NEXT_PUBLIC_API_URL` in the frontend's environment to point at the
+running backend (e.g. `https://api.yourdomain.com`).
+
+---
+
+### Option 3 — Frontend only
+
+Use when the backend is already running on another host.
+
+```bash
+NEXT_PUBLIC_API_URL=https://api.yourdomain.com \
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_... \
+docker compose -f docker-compose.frontend.yml up --build -d
+```
+
+---
+
+### Common commands
+
+```bash
+# View logs
+docker compose logs -f backend
+docker compose logs -f frontend
+
+# Rebuild after code changes
+docker compose up --build -d
+
+# Stop everything
+docker compose down
+
+# Stop and remove volumes
+docker compose down -v
+```
+
+---
+
+### Stripe webhook in production
+
+Point your Stripe webhook to `https://yourdomain.com/api/payments/webhook`
+(`payment_intent.succeeded` event). Set `STRIPE_WEBHOOK_SECRET=whsec_...` in `.env`.
+
+```bash
+# Local testing (requires Stripe CLI)
+stripe listen --forward-to localhost:9999/api/payments/webhook
+```
+
+---
+
 ## Development
 
 ```bash
