@@ -3,9 +3,9 @@
 from .swarm import app
 
 # The single-agent example remains importable for reference.
-from . import agent_logic_example as example_agent
+# from . import agent_logic_example as example_agent
 
-__all__ = ["app", "example_agent"]
+__all__ = ["app"]
 
 if __name__ == "__main__":
     import uvicorn

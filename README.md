@@ -177,7 +177,8 @@ Client request
 |---|---|
 | [`pydantic-ai`](https://github.com/pydantic/pydantic-ai) | Agent framework with type-safe tool definitions |
 | [`litellm`](https://github.com/BerriAI/litellm) | Universal LLM gateway (OpenAI, Gemini, Anthropic, Puter, …) |
-| [`fasta2a`](https://github.com/pydantic/pydantic-ai) | Agent-to-Agent (A2A) protocol for inter-agent HTTP |
+| [`pydantic-ai-litellm`](https://github.com/mochow13/pydantic-ai-litellm) | LiteLLMModel for integrating LiteLLM with pydantic-ai plus bridges the gap between pydantic-ai and puter.js |
+| [`fasta2a`](https://github.com/pydantic/pydantic-ai) | Pydantic's very own implementation of the Agent-to-Agent (A2A) protocol for inter-agent HTTP |
 | [`starlette`](https://www.starlette.io) | Lightweight ASGI framework for the REST API |
 | [`uvicorn`](https://www.uvicorn.org) | ASGI server |
 | [`stripe`](https://stripe.com/docs/api) | Stripe SDK for PaymentIntents and webhooks |
@@ -190,7 +191,7 @@ Client request
 | [Next.js 16](https://nextjs.org) | React app router, SSR, API proxy rewrites |
 | [`@stripe/react-stripe-js`](https://stripe.com/docs/stripe-js) | Stripe Elements embedded payment forms |
 | [`lucide-react`](https://lucide.dev) | Icon library |
-| Vanilla CSS | Design system — dark navy + violet, glassmorphism cards |
+| Tailwind CSS | Design system — dark navy + violet, glassmorphism cards |
 
 ---
 
@@ -201,12 +202,12 @@ Client request
 - [uv](https://github.com/astral-sh/uv) — Python package manager
 - Node.js ≥ 20 and npm (use [nvm](https://github.com/nvm-sh/nvm))
 - A [Stripe](https://stripe.com) account (test keys work fine)
-- An LLM API key (OpenAI, Gemini, Anthropic — or Puter for free inference)
+- A FREE puter.js Auth Token to take advantage of Puter's free inference
 
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/your-username/agent-puter.git
+git clone https://github.com/vizionik25/agent-puter.git
 cd agent-puter
 uv sync
 ```
@@ -216,18 +217,20 @@ uv sync
 Create a `.env` file in the project root:
 
 ```env
-# LLM — pick one (litellm format)
-OPENAI_API_KEY=sk-...
-# or
-GEMINI_API_KEY=...
-# or use Puter's free inference:
+# LLM — use Puter's free inference:
 PUTER_AUTH_TOKEN=your-puterjs-token
-# you can refer to https://docs.puter.com/playground/ai-list-model-providers/ for the full list of models to use
+# obtain your token here: https://puter.com/dashboard#account
+# you can refer to https://docs.puter.com/playground/ai-list-model-providers/ for the full
+# list of models to use
 # but I recomend to stay well away from Gemini 3 Pro models, they are not very good at 
 # following instructions and are prone to hallucinations. I have had the best results with 
-# Claude Sonnet 4.5, 4.6, 4.7 and Opus 4.7.
+# Claude Sonnet 4.5, 4.6, 4.7 and Opus 4.7. Most model providers still use the OpenAI API
+# formatwhich is the reason for 'openai/' in the model name and in the url.
 PUTER_MODEL=openai/claude-sonnet-4-5
 PUTER_API_BASE=https://api.puter.com/puterai/openai/v1
+
+## Or if you perfer to use another provider just change the model and api base to match your
+## provider or another OpenAI compatible API.
 
 # Stripe
 STRIPE_SECRET_KEY=sk_test_...
@@ -278,7 +281,7 @@ stripe listen --forward-to http://localhost:9999/api/payments/webhook
 agent-puter/
 ├── src/agent_puter/
 │   ├── __init__.py              Entry point
-│   ├── agent.py                 Single-agent example (reference)
+│   ├── agent-logic-example.py                 Single-agent example (reference)
 │   └── swarm/
 │       ├── main.py              Starlette app — mounts all agents + API
 │       ├── server.py            uvicorn launcher
