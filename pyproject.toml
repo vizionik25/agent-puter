@@ -1,0 +1,33 @@
+[project]
+name = "agent-puter"
+version = "0.2.0"
+description = "Autonomous AI consulting agency — a swarm of specialized agents built on pydantic-ai, litellm, and Puter.js"
+readme = "README.md"
+authors = [
+    { name = "Charles Nichols", email = "nik@vizionikmedia.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "dotenv>=0.9.9",
+    "fasta2a>=0.6.0",
+    "fastapi>=0.135.1",
+    "litellm>=1.82.3",
+    "puter-python-sdk>=0.5.0",
+    "pydantic-ai>=1.69.0",
+    "pydantic-ai-litellm>=0.2.3",
+    "pydantic-ai-slim[a2a]>=1.69.0",
+    "starlette>=0.46.0",
+    "stripe>=14.4.1",
+    "uvicorn>=0.42.0",
+]
+
+[project.scripts]
+# Serve the full swarm (all 6 agents) via uvicorn:
+#   uv run agent-puter
+# Or directly:
+#   uvicorn agent_puter.swarm.main:app --host 0.0.0.0 --port 9999
+agent-puter = "agent_puter.swarm.server:run"
+
+[build-system]
+requires = ["uv_build>=0.10.7,<0.11.0"]
+build-backend = "uv_build"
