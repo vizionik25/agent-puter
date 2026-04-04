@@ -4,10 +4,15 @@ engineer_agent.py — Software Engineer Agent
 Writes code, runs tests, and produces file artifacts.
 Pattern: LiteLLMModel → pydantic_ai.Agent → .to_a2a() ASGI app.
 Each agent owns its own A2A app so it can be mounted or run independently.
+
+MCP: When MCP_SERVER_URL is set, the agent also exposes the MCP server's tools
+with the "mcp_" prefix so the LLM can call them alongside its built-in tools.
 """
 import json
+import os
 import subprocess
 import textwrap
+from pathlib import Path
 from dotenv import load_dotenv
 from pydantic_ai import Agent
 from .base_agent import make_model
@@ -21,9 +26,11 @@ Your responsibilities:
 1. Receive implementation tasks from the Project Manager.
 2. Write clean, well-documented, production-quality code.
 3. Run tests and fix issues before marking a task complete.
-4. Return your output as a structured report including:
+4. Deploy deliverables using deploy_to_sandbox when a task is complete.
+5. Return your output as a structured report including:
    - The code produced (in full, not truncated)
    - Test results
+   - Sandbox deployment URL (if deployed)
    - Any known limitations
 
 Always follow best practices:
@@ -35,9 +42,25 @@ Always follow best practices:
 If you receive QA feedback, address every point systematically before resubmitting.
 """
 
+
+def _make_mcp_toolsets() -> list:
+    """Return a list of MCP toolsets to attach, based on MCP_SERVER_URL env var."""
+    mcp_url = os.getenv("MCP_SERVER_URL", "").strip()
+    if not mcp_url:
+        return []
+    try:
+        from pydantic_ai.mcp import MCPServerHTTP
+        print(f"[EngineerAgent] Attaching MCP server: {mcp_url}")
+        return [MCPServerHTTP(url=mcp_url, tool_prefix="mcp")]
+    except Exception as exc:
+        print(f"[EngineerAgent] Could not attach MCP server: {exc}")
+        return []
+
+
 engineer_agent = Agent(
     model=make_model(),
     instructions=_SYSTEM_PROMPT,
+    toolsets=_make_mcp_toolsets(),
 )
 
 # Each agent exposes itself as a self-contained A2A ASGI app.
@@ -136,7 +159,6 @@ def write_file(filepath: str, content: str) -> str:
 
     Returns confirmation JSON.
     """
-    import os
     try:
         os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
@@ -144,3 +166,37 @@ def write_file(filepath: str, content: str) -> str:
         return json.dumps({"filepath": filepath, "bytes_written": len(content), "status": "ok"})
     except Exception as e:
         return json.dumps({"error": str(e)})
+
+
+@engineer_agent.tool_plain
+def deploy_to_sandbox(project_id: str, content: str, filename: str = "index.html") -> str:
+    """
+    Deploy deliverable content to the project sandbox directory.
+
+    Files are written to deliveries/{project_id}/{filename} and served
+    at http://localhost:9999/deliveries/{project_id}/{filename}.
+
+    Args:
+        project_id: The project this delivery belongs to.
+        content: HTML, text, or other content to deploy.
+        filename: Target filename within the sandbox (default: index.html).
+
+    Returns JSON with the sandbox URL.
+    """
+    # Sanitise filename — no path traversal
+    safe_filename = Path(filename).name or "index.html"
+    deploy_dir = Path("deliveries") / project_id
+    try:
+        deploy_dir.mkdir(parents=True, exist_ok=True)
+        target = deploy_dir / safe_filename
+        target.write_text(content, encoding="utf-8")
+        sandbox_url = f"{BASE_URL}/deliveries/{project_id}/{safe_filename}"
+        return json.dumps({
+            "status": "deployed",
+            "project_id": project_id,
+            "filename": safe_filename,
+            "url": sandbox_url,
+            "bytes": len(content),
+        })
+    except Exception as exc:
+        return json.dumps({"status": "failed", "error": str(exc)})

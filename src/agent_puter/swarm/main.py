@@ -9,9 +9,12 @@ Endpoints:
   GET  /docs                        → CEO fasta2a docs UI
   POST /run                         → CEO A2A run endpoint
   GET|POST /sales/*  /pm/*  ...     → per-agent sub-apps
+  GET  /deliveries/*                → static sandbox delivery files
   POST /api/consult/*               → consultation session routes
-  GET|POST /api/projects/*          → project / proposal / demo routes
+  POST /api/consult/{id}/stream     → SSE streaming chat
+  GET|POST /api/projects/*          → project / proposal / demo / usage routes
   POST /api/payments/*              → Stripe payment routes
+  GET  /api/admin/*                 → admin routes (requires X-Admin-Key)
 
 Run:
   uv run agent-puter
@@ -19,7 +22,9 @@ Run:
 """
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
 from starlette.applications import Starlette
@@ -28,6 +33,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount, Route
 from starlette.responses import JSONResponse
 from starlette.requests import Request
+from starlette.staticfiles import StaticFiles
 
 from .ceo_agent import ceo_agent, ceo_app as _ceo_app
 from .sales_agent import sales_agent, sales_app as _sales_app
@@ -40,6 +46,9 @@ from .api import routes as api_routes
 
 # All A2A apps are owned by their respective agent modules.
 # main.py mounts them — it does NOT call .to_a2a() itself.
+
+# Ensure deliveries directory exists for sandbox hosting
+Path("deliveries").mkdir(exist_ok=True)
 
 
 @asynccontextmanager
@@ -78,20 +87,26 @@ async def health(request: Request) -> JSONResponse:
                 "agent_card": "http://localhost:9999/.well-known/agent-card.json",
             },
             "agents": [
-                {"role": "ceo",        "docs": "/docs",            "a2a": "/"},
-                {"role": "sales",      "docs": "/sales/docs",      "a2a": "/sales/"},
-                {"role": "pm",         "docs": "/pm/docs",         "a2a": "/pm/"},
-                {"role": "researcher", "docs": "/researcher/docs", "a2a": "/researcher/"},
-                {"role": "engineer",   "docs": "/engineer/docs",   "a2a": "/engineer/"},
-                {"role": "qa",              "docs": "/qa/docs",              "a2a": "/qa/"},
-                {"role": "product_manager", "docs": "/product-manager/docs", "a2a": "/product-manager/"},
+                {"role": "ceo",             "docs": "/docs",                    "a2a": "/"},
+                {"role": "sales",           "docs": "/sales/docs",              "a2a": "/sales/"},
+                {"role": "pm",              "docs": "/pm/docs",                 "a2a": "/pm/"},
+                {"role": "researcher",      "docs": "/researcher/docs",         "a2a": "/researcher/"},
+                {"role": "engineer",        "docs": "/engineer/docs",           "a2a": "/engineer/"},
+                {"role": "qa",              "docs": "/qa/docs",                 "a2a": "/qa/"},
+                {"role": "product_manager", "docs": "/product-manager/docs",    "a2a": "/product-manager/"},
             ],
         },
         "api": {
             "consult": "/api/consult/start",
+            "consult_stream": "/api/consult/{id}/stream",
             "projects": "/api/projects/{id}",
+            "usage": "/api/projects/{id}/usage",
             "payments": "/api/payments/deposit",
+            "admin": "/api/admin/projects  (requires X-Admin-Key)",
         },
+        "sandbox": "/deliveries/{project_id}/",
+        "mcp_enabled": bool(os.getenv("MCP_SERVER_URL")),
+        "storage_backend": os.getenv("STORAGE_BACKEND", "memory"),
     })
 
 
@@ -120,12 +135,15 @@ app = Starlette(
         Route("/run",                          _root_run,        methods=["POST"]),
 
         # ── Per-agent sub-apps (A2A protocol + per-agent docs) ───────────
-        Mount("/ceo",        app=_ceo_app),
-        Mount("/sales",      app=_sales_app),
-        Mount("/pm",         app=_pm_app),
-        Mount("/researcher", app=_researcher_app),
-        Mount("/engineer",   app=_engineer_app),
-        Mount("/qa",               app=_qa_app),
-        Mount("/product-manager",  app=_product_manager_app),
+        Mount("/ceo",             app=_ceo_app),
+        Mount("/sales",           app=_sales_app),
+        Mount("/pm",              app=_pm_app),
+        Mount("/researcher",      app=_researcher_app),
+        Mount("/engineer",        app=_engineer_app),
+        Mount("/qa",              app=_qa_app),
+        Mount("/product-manager", app=_product_manager_app),
+
+        # ── Sandbox static files (automated delivery) ───────────────────
+        Mount("/deliveries", app=StaticFiles(directory="deliveries", html=True)),
     ],
 )

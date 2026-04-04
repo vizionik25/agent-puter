@@ -1,15 +1,17 @@
 """
-api/_store.py — Shared in-memory store for sessions and projects.
+api/_store.py — Re-exports the async store singleton.
 
-Imported by all API route modules and by main.py to share state
-across the consultation, projects, and payments endpoints.
+All route handlers should use:
+    from . import _store
+    session = await _store.store.get_session(id)
+    await _store.store.set_session(session)
 
-In production, replace with Puter KV or a real database.
+The `store` object's backend is controlled by STORAGE_BACKEND env var.
+AgencyDeps still receives a snapshot of the projects/sessions dicts for
+compatibility with the agency orchestration loop.
 """
 from __future__ import annotations
 
-from ..models import ConsultSession, Project
+from .store import store
 
-# Single shared dictionaries — mutated in-place by all route handlers
-sessions: dict[str, ConsultSession] = {}
-projects: dict[str, Project] = {}
+__all__ = ["store"]

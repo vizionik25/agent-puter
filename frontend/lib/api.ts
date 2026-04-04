@@ -241,3 +241,83 @@ export const finalIntent = (body: { project_id: string }) =>
  */
 export const paymentStatus = (id: string) =>
   req<PaymentStatus>(`/api/payments/${id}/status`);
+
+// ── Streaming ─────────────────────────────────────────────────────────────────
+
+/**
+ * Send a message via the SSE streaming endpoint and call onChunk for each text delta.
+ *
+ * @param id       - Session ID.
+ * @param message  - User message text.
+ * @param onChunk  - Called with each streamed text fragment as it arrives.
+ * @returns Resolves when the stream is fully done.
+ * @throws  If the endpoint returns a non-2xx status.
+ */
+export async function consultStream(
+  id: string,
+  message: string,
+  onChunk: (text: string) => void
+): Promise<void> {
+  const res = await fetch(`${BASE}/api/consult/${id}/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(`Stream ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const evt = JSON.parse(line.slice(6));
+        if (evt.type === "chunk" && evt.text) {
+          onChunk(evt.text as string);
+        } else if (evt.type === "error") {
+          throw new Error(evt.message as string);
+        }
+      } catch (e) {
+        if (e instanceof SyntaxError) continue; // partial JSON, ignore
+        throw e;
+      }
+    }
+  }
+}
+
+// ── Usage ─────────────────────────────────────────────────────────────────────
+
+/** LLM token + cost breakdown returned by GET /api/projects/{id}/usage. */
+export interface UsageReport {
+  project_id: string;
+  tokens_used: number;
+  llm_requests: number;
+  llm_cost_usd: number;
+  budget_tokens: number;
+  budget_remaining: number;
+  task_breakdown: Array<{
+    task_id: string;
+    title: string;
+    tokens_used: number;
+    cost_usd: number;
+  }>;
+}
+
+/**
+ * Fetch LLM token usage and cost breakdown for a project.
+ *
+ * @param id - Project ID.
+ */
+export const usageGet = (id: string) =>
+  req<UsageReport>(`/api/projects/${id}/usage`);

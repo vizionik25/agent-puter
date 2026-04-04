@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from . import _store
+from ..api.admin import log_event
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 
@@ -33,7 +34,7 @@ async def create_deposit(request: Request) -> JSONResponse:
         return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
 
     project_id = body.get("project_id", "").strip()
-    project = _store.projects.get(project_id)
+    project = await _store.store.get_project(project_id)
     if not project:
         return JSONResponse({"error": "Project not found"}, status_code=404)
 
@@ -60,8 +61,9 @@ async def create_deposit(request: Request) -> JSONResponse:
 
     project.stripe_deposit_intent_id = intent.id
     project.updated_at = datetime.utcnow()
-    _store.projects[project_id] = project
+    await _store.store.set_project(project)
 
+    log_event("info", "payments", f"Deposit intent created: {intent.id}", project_id=project_id)
     return JSONResponse({
         "client_secret": intent.client_secret,
         "amount_usd": project.proposal.deposit_amount_usd,
@@ -80,7 +82,7 @@ async def create_final(request: Request) -> JSONResponse:
         return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
 
     project_id = body.get("project_id", "").strip()
-    project = _store.projects.get(project_id)
+    project = await _store.store.get_project(project_id)
     if not project:
         return JSONResponse({"error": "Project not found"}, status_code=404)
 
@@ -111,8 +113,9 @@ async def create_final(request: Request) -> JSONResponse:
 
     project.stripe_final_intent_id = intent.id
     project.updated_at = datetime.utcnow()
-    _store.projects[project_id] = project
+    await _store.store.set_project(project)
 
+    log_event("info", "payments", f"Final intent created: {intent.id}", project_id=project_id)
     return JSONResponse({
         "client_secret": intent.client_secret,
         "amount_usd": project.proposal.final_amount_usd,
@@ -135,7 +138,6 @@ async def webhook(request: Request) -> JSONResponse:
         except stripe.error.SignatureVerificationError:
             return JSONResponse({"error": "Invalid signature"}, status_code=400)
     else:
-        # Dev mode: trust the payload without signature verification
         try:
             event = json.loads(payload)
         except Exception:
@@ -149,7 +151,6 @@ async def webhook(request: Request) -> JSONResponse:
     )
 
     if event_type == "payment_intent.succeeded":
-        intent_id = data_obj.get("id") if isinstance(data_obj, dict) else data_obj.id
         metadata = (
             data_obj.get("metadata", {})
             if isinstance(data_obj, dict)
@@ -158,14 +159,29 @@ async def webhook(request: Request) -> JSONResponse:
         project_id = metadata.get("project_id")
         payment_type = metadata.get("payment_type")
 
-        if project_id and project_id in _store.projects:
-            project = _store.projects[project_id]
-            if payment_type == "deposit":
-                project.deposit_paid = True
-            elif payment_type == "final":
-                project.final_paid = True
-            project.updated_at = datetime.utcnow()
-            _store.projects[project_id] = project
+        if project_id:
+            project = await _store.store.get_project(project_id)
+            if project:
+                if payment_type == "deposit":
+                    project.deposit_paid = True
+                    log_event("info", "payments", "Deposit payment confirmed", project_id=project_id)
+                elif payment_type == "final":
+                    project.final_paid = True
+                    log_event("info", "payments", "Final payment confirmed", project_id=project_id)
+
+                    # Email delivery confirmation
+                    from ..notifications import notify_delivery_complete
+                    try:
+                        notify_delivery_complete(
+                            project,
+                            client_email=project.client_id,
+                            client_name=project.client_id,
+                        )
+                    except Exception as exc:
+                        log_event("warn", "notifications", f"Delivery email failed: {exc}", project_id=project_id)
+
+                project.updated_at = datetime.utcnow()
+                await _store.store.set_project(project)
 
     return JSONResponse({"received": True})
 
@@ -173,7 +189,7 @@ async def webhook(request: Request) -> JSONResponse:
 async def payment_status(request: Request) -> JSONResponse:
     """Return the current payment status for a project."""
     project_id = request.path_params["project_id"]
-    project = _store.projects.get(project_id)
+    project = await _store.store.get_project(project_id)
     if not project:
         return JSONResponse({"error": "Project not found"}, status_code=404)
 

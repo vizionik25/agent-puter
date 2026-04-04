@@ -54,17 +54,13 @@ async def _call_agent(base_url: str, prompt: str) -> str:
     client = A2AClient(base_url=base_url)
     try:
         response = await client.send_message(message=_text_message(prompt))
-        # SendMessageResponse is JSONRPCResponse[Union[Task, Message], JSONRPCError]
-        # Access result — may be a Task (has 'status') or a Message (has 'parts' directly).
         result = response.get("result")  # type: ignore[union-attr]
         if result is None:
             return ""
-        # Task path: result["status"]["message"]["parts"]
         if "status" in result:
             msg = result["status"].get("message", {})
             parts = msg.get("parts", []) if msg else []
         else:
-            # Message path: result["parts"]
             parts = result.get("parts", [])
         texts = [p["text"] for p in parts if p.get("kind") == "text"]
         return "\n".join(texts)
@@ -78,14 +74,26 @@ async def _call_agent(base_url: str, prompt: str) -> str:
 # ---------------------------------------------------------------------------
 
 _AGENT_URLS: dict[str, str] = {
-    "ceo":        f"{BASE_URL}",
-    "sales":      f"{BASE_URL}/sales",
-    "pm":         f"{BASE_URL}/pm",
-    "researcher": f"{BASE_URL}/researcher",
-    "engineer":   f"{BASE_URL}/engineer",
+    "ceo":             f"{BASE_URL}",
+    "sales":           f"{BASE_URL}/sales",
+    "pm":              f"{BASE_URL}/pm",
+    "researcher":      f"{BASE_URL}/researcher",
+    "engineer":        f"{BASE_URL}/engineer",
     "qa":              f"{BASE_URL}/qa",
     "product_manager": f"{BASE_URL}/product-manager",
 }
+
+# Approximate cost per million tokens (USD) — update to match your model
+_INPUT_COST_PER_MTOK = 3.0
+_OUTPUT_COST_PER_MTOK = 15.0
+# Rough token estimate per A2A call (prompt + response avg for planning calls)
+_AVG_TOKENS_PER_CALL = 2_000
+
+
+def _estimate_call_cost(tokens: int) -> float:
+    """Estimate USD cost for a given token count (assumes 50/50 input/output split)."""
+    half = tokens / 2
+    return (half * _INPUT_COST_PER_MTOK + half * _OUTPUT_COST_PER_MTOK) / 1_000_000
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +152,9 @@ class Agency:
             client_id=client_id,
             status=ProjectStatus.PLANNING,
             budget_tokens=75_000,
+            llm_requests=2,
+            tokens_used=_AVG_TOKENS_PER_CALL * 2,
+            llm_cost_usd=_estimate_call_cost(_AVG_TOKENS_PER_CALL * 2),
         )
 
         # --- Step 4: PM agent creates task list (A2A) ---
@@ -153,6 +164,9 @@ class Agency:
             f"Project ID: {project.id}",
         )
         print(f"[Agency][PM→A2A] Tasks: {task_text[:200]}")
+        project.llm_requests += 1
+        project.tokens_used += _AVG_TOKENS_PER_CALL
+        project.llm_cost_usd += _estimate_call_cost(_AVG_TOKENS_PER_CALL)
 
         # Parse tasks from PM output if JSON is present
         task_json = _extract_json(task_text)
@@ -208,7 +222,13 @@ class Agency:
                 f"Tasks completed: {len(project.tasks)}. "
                 "Call approve_delivery with a brief summary.",
             )
+            project.llm_requests += 1
+            project.tokens_used += _AVG_TOKENS_PER_CALL
+            project.llm_cost_usd += _estimate_call_cost(_AVG_TOKENS_PER_CALL)
             print(f"[Agency][CEO→A2A] Project {project.id} approved for delivery.")
+
+            # Automated delivery — collect outputs and deploy sandbox
+            await self._auto_deploy(project)
 
     async def _execute_task(self, task: Task, project: Project) -> None:
         """Execute a single task with QA feedback loop, all via A2A."""
@@ -229,6 +249,13 @@ class Agency:
             task.output = await _call_agent(agent_url, prompt)
             task.status = TaskStatus.REVIEW
 
+            # Track cost for this task
+            task.tokens_used += _AVG_TOKENS_PER_CALL
+            task.cost_usd += _estimate_call_cost(_AVG_TOKENS_PER_CALL)
+            project.tokens_used += _AVG_TOKENS_PER_CALL
+            project.llm_requests += 1
+            project.llm_cost_usd += _estimate_call_cost(_AVG_TOKENS_PER_CALL)
+
             # QA review via A2A
             qa_prompt = (
                 f"Review the following output for task: '{task.title}'\n\n"
@@ -239,6 +266,10 @@ class Agency:
             )
             qa_text = await _call_agent(_AGENT_URLS["qa"], qa_prompt)
             passed = "pass" in qa_text.lower() and "fail" not in qa_text.lower()
+
+            project.tokens_used += _AVG_TOKENS_PER_CALL
+            project.llm_requests += 1
+            project.llm_cost_usd += _estimate_call_cost(_AVG_TOKENS_PER_CALL)
 
             if passed:
                 task.status = TaskStatus.DONE
@@ -258,7 +289,78 @@ class Agency:
             f"Task '{task.title}' in project {project.id} failed after "
             f"{self.deps.max_qa_retries} QA retries. Decide next action.",
         )
+        project.llm_requests += 1
+        project.llm_cost_usd += _estimate_call_cost(_AVG_TOKENS_PER_CALL)
         print(f"  [Agency] Task '{task.title}' FAILED after max retries — escalated to CEO via A2A.")
+
+    async def _auto_deploy(self, project: Project) -> None:
+        """
+        Automated delivery: collect task outputs and deploy to the sandbox.
+
+        Writes a simple HTML summary of all task outputs to
+        deliveries/{project_id}/index.html and sets project.demo_url.
+        """
+        if project.demo_url:
+            return  # Already deployed manually
+
+        outputs = []
+        for task in project.tasks:
+            if task.output:
+                outputs.append(f"<section><h3>{task.title}</h3><pre>{task.output[:2000]}</pre></section>")
+
+        if not outputs:
+            return
+
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{project.name} — Deliverables</title>
+<style>
+  body {{ font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }}
+  h1 {{ color: #7c3aed; }}
+  section {{ margin: 2rem 0; border-left: 3px solid #7c3aed; padding-left: 1rem; }}
+  pre {{ background: #1e1e2e; color: #cdd6f4; padding: 1rem; overflow-x: auto; border-radius: 6px; }}
+</style>
+</head>
+<body>
+<h1>{project.name}</h1>
+<p><em>Delivered by Agent-Puter — {datetime.utcnow().strftime('%Y-%m-%d')}</em></p>
+{"".join(outputs)}
+</body>
+</html>"""
+
+        deploy_prompt = (
+            f"Deploy the following deliverable for project {project.id}.\n"
+            f"Call deploy_to_sandbox with project_id='{project.id}', "
+            f"filename='index.html', and the following content:\n\n{html[:4000]}"
+        )
+        deploy_result = await _call_agent(_AGENT_URLS["engineer"], deploy_prompt)
+        project.llm_requests += 1
+        project.llm_cost_usd += _estimate_call_cost(_AVG_TOKENS_PER_CALL)
+
+        # Parse URL from engineer's response
+        result_json = _extract_json(deploy_result)
+        if result_json and result_json.get("status") == "deployed":
+            sandbox_url = result_json.get("url", "")
+            if sandbox_url:
+                project.demo_url = sandbox_url
+                project.deployment_status = "deployed"
+                print(f"[Agency] Auto-deployed to sandbox: {sandbox_url}")
+                return
+
+        # Fallback: generate URL directly
+        from pathlib import Path
+        deploy_dir = Path("deliveries") / project.id
+        try:
+            deploy_dir.mkdir(parents=True, exist_ok=True)
+            (deploy_dir / "index.html").write_text(html, encoding="utf-8")
+            project.demo_url = f"{BASE_URL}/deliveries/{project.id}/index.html"
+            project.deployment_status = "deployed"
+            print(f"[Agency] Fallback auto-deployed: {project.demo_url}")
+        except Exception as exc:
+            project.deployment_status = "failed"
+            print(f"[Agency] Auto-deploy failed: {exc}")
 
 
 # ---------------------------------------------------------------------------

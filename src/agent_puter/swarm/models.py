@@ -58,6 +58,8 @@ class Task(BaseModel):
     output: Optional[str] = None               # text produced by the execution agent
     qa_feedback: Optional[str] = None          # QA reviewer's comments on last attempt
     retry_count: int = 0                       # incremented each time QA fails
+    tokens_used: int = 0                       # LLM tokens consumed by this task
+    cost_usd: float = 0.0                      # estimated USD cost for this task
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -85,16 +87,20 @@ class Project(BaseModel):
     name: str
     description: str
     client_id: str
+    owner_id: str = "default"                  # tenant identifier (multi-tenancy)
     status: ProjectStatus = ProjectStatus.INTAKE
     tasks: list[Task] = Field(default_factory=list)
     budget_tokens: int = 100_000
     tokens_used: int = 0
+    llm_requests: int = 0                      # total LLM API calls made
+    llm_cost_usd: float = 0.0                  # estimated total LLM cost
     # --- payment & proposal fields ---
     proposal: Optional[Proposal] = None
     total_price_usd: float = 0.0
     deposit_paid: bool = False
     final_paid: bool = False
     demo_url: Optional[str] = None
+    deployment_status: Optional[str] = None    # "pending" | "deployed" | "failed"
     stripe_deposit_intent_id: Optional[str] = None
     stripe_final_intent_id: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -123,6 +129,7 @@ class ConsultSession(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     client_name: str
     client_email: str
+    owner_id: str = "default"              # tenant identifier (multi-tenancy)
     messages: list[ConsultMessage] = Field(default_factory=list)
     project_id: Optional[str] = None       # set after handle_client_request completes
     status: str = "active"                 # "active" | "complete"

@@ -656,14 +656,14 @@ stripe listen --forward-to localhost:9999/api/payments/webhook
 
 ## Roadmap
 
-- [ ] **Puter KV persistence** — replace in-memory store with durable Puter cloud KV
-- [ ] **Admin dashboard** — manage projects, set demo URLs, view agent logs
-- [ ] **Email notifications** — notify clients when proposal is ready / demo is live
-- [ ] **Streaming chat** — SSE-based streaming responses in the consult interface
-- [ ] **Multi-tenancy** — agency owner accounts with separate project namespaces
-- [ ] **LLM cost tracking** — per-project token usage and cost reporting
-- [ ] **Automated delivery** — Engineer agent deploys to a subdomain of your url for the demo automatically
-- [ ] **Integrate with a2a_mcp_gateway** — Integrate MCP Functionality for tool usage
+- [x] **Puter KV persistence** — pluggable store: in-memory / JSON file / Puter KV (`STORAGE_BACKEND`)
+- [x] **Admin dashboard** — `/admin` UI + `/api/admin/*` routes (requires `ADMIN_API_KEY`)
+- [x] **Email notifications** — SMTP emails on proposal ready, demo ready, delivery confirmed
+- [x] **Streaming chat** — SSE endpoint `POST /api/consult/{id}/stream` + streaming UI
+- [x] **Multi-tenancy** — `X-Agency-Key` header maps keys to tenant namespaces (`AGENCY_API_KEYS`)
+- [x] **LLM cost tracking** — per-project token + cost tracking; `GET /api/projects/{id}/usage`
+- [x] **Automated delivery** — Engineer `deploy_to_sandbox` tool; static `/deliveries/` served at runtime
+- [x] **MCP integration** — `MCPServerHTTP` toolset on Researcher + Engineer agents (`MCP_SERVER_URL`)
 
 ---
 

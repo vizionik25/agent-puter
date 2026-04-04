@@ -4,7 +4,8 @@
  * Two-phase flow:
  *   1. "intro" — Collects client_name, client_email, and initial project description.
  *      Calls POST /api/consult/start → receives session_id + first Sales Agent reply.
- *   2. "chat"  — Real-time chat loop via POST /api/consult/{id}/message.
+ *   2. "chat"  — Real-time streaming chat via POST /api/consult/{id}/stream (SSE).
+ *      Falls back to POST /api/consult/{id}/message if streaming fails.
  *      When the agent decides the session is complete (status="complete"),
  *      POST /api/consult/{id}/complete is called automatically to trigger the
  *      agency loop (CEO → PM → Engineer → QA) and the user is redirected to
@@ -13,7 +14,7 @@
 "use client";
 
 import { useState, useRef, useEffect, FormEvent } from "react";
-import { consultStart, consultMessage, consultComplete } from "@/lib/api";
+import { consultStart, consultMessage, consultComplete, consultStream } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 interface Bubble {
@@ -68,23 +69,50 @@ export default function ConsultPage() {
     setInput("");
     setBubbles((b) => [...b, { role: "user", content: msg }]);
     setLoading(true);
+
+    // Add empty agent bubble that we'll fill in chunk by chunk
+    setBubbles((b) => [...b, { role: "agent", content: "" }]);
+
     try {
-      const res = await consultMessage(sessionId, { message: msg });
-      setBubbles((b) => [...b, { role: "agent", content: res.reply }]);
-      // If the session just completed, trigger the agency loop then redirect
-      if (res.status === "complete" && sessionId) {
+      let streamDone = false;
+      try {
+        await consultStream(sessionId, msg, (chunk) => {
+          setBubbles((b) => {
+            const updated = [...b];
+            updated[updated.length - 1] = {
+              role: "agent",
+              content: updated[updated.length - 1].content + chunk,
+            };
+            return updated;
+          });
+        });
+        streamDone = true;
+      } catch {
+        // Streaming not available — fall back to non-streaming
+        setBubbles((b) => b.slice(0, -1)); // remove the empty agent bubble
+        const res = await consultMessage(sessionId, { message: msg });
+        setBubbles((b) => [...b, { role: "agent", content: res.reply }]);
+        streamDone = true;
+      }
+
+      if (streamDone) {
+        // Check if session should complete
         try {
           const completed = await consultComplete(sessionId);
-          setProjectId(completed.project_id);
-          setTimeout(() => router.push(`/proposal/${completed.project_id}`), 1200);
+          if (completed.project_id) {
+            setProjectId(completed.project_id);
+            setTimeout(() => router.push(`/proposal/${completed.project_id}`), 1200);
+          }
         } catch {
-          // complete may already have been called; ignore
+          // Session not yet ready to complete — that's fine
         }
-      } else if (res.project_id) {
-        setProjectId(res.project_id);
       }
     } catch (err: unknown) {
-      setBubbles((b) => [...b, { role: "agent", content: "⚠️ Connection error. Please try again." }]);
+      setBubbles((b) => {
+        const updated = [...b];
+        updated[updated.length - 1] = { role: "agent", content: "⚠️ Connection error. Please try again." };
+        return updated;
+      });
     } finally {
       setLoading(false);
     }
