@@ -35,6 +35,7 @@ from .pm_agent import pm_agent, pm_app as _pm_app
 from .researcher_agent import researcher_agent, researcher_app as _researcher_app
 from .engineer_agent import engineer_agent, engineer_app as _engineer_app
 from .qa_agent import qa_agent, qa_app as _qa_app
+from .product_manager_agent import product_manager_agent, product_manager_app as _product_manager_app
 from .api import routes as api_routes
 
 # All A2A apps are owned by their respective agent modules.
@@ -50,7 +51,8 @@ async def _lifespan(app: Starlette) -> AsyncIterator[None]:
                 async with _researcher_app.task_manager:
                     async with _engineer_app.task_manager:
                         async with _qa_app.task_manager:
-                            yield
+                            async with _product_manager_app.task_manager:
+                                yield
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +83,8 @@ async def health(request: Request) -> JSONResponse:
                 {"role": "pm",         "docs": "/pm/docs",         "a2a": "/pm/"},
                 {"role": "researcher", "docs": "/researcher/docs", "a2a": "/researcher/"},
                 {"role": "engineer",   "docs": "/engineer/docs",   "a2a": "/engineer/"},
-                {"role": "qa",         "docs": "/qa/docs",         "a2a": "/qa/"},
+                {"role": "qa",              "docs": "/qa/docs",              "a2a": "/qa/"},
+                {"role": "product_manager", "docs": "/product-manager/docs", "a2a": "/product-manager/"},
             ],
         },
         "api": {
@@ -122,6 +125,7 @@ app = Starlette(
         Mount("/pm",         app=_pm_app),
         Mount("/researcher", app=_researcher_app),
         Mount("/engineer",   app=_engineer_app),
-        Mount("/qa",         app=_qa_app),
+        Mount("/qa",               app=_qa_app),
+        Mount("/product-manager",  app=_product_manager_app),
     ],
 )

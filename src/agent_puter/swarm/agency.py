@@ -83,7 +83,8 @@ _AGENT_URLS: dict[str, str] = {
     "pm":         f"{BASE_URL}/pm",
     "researcher": f"{BASE_URL}/researcher",
     "engineer":   f"{BASE_URL}/engineer",
-    "qa":         f"{BASE_URL}/qa",
+    "qa":              f"{BASE_URL}/qa",
+    "product_manager": f"{BASE_URL}/product-manager",
 }
 
 
