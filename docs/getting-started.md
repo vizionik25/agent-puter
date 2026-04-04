@@ -45,7 +45,7 @@ Copy `.env.example` to `.env` and fill in the values:
 cp .env.example .env
 ```
 
-**Required values:**
+### Required values
 
 ```env
 # LLM via Puter (free inference)
@@ -69,10 +69,81 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 3. Copy your session token
 
 **Supported models:**
-See [docs.puter.com/playground/ai-list-model-providers](https://docs.puter.com/playground/ai-list-model-providers/) for the full model list. Claude Sonnet 4.5/4.6 and Opus 4.7 are recommended. Most providers use the OpenAI format, hence the `openai/` prefix.
+See [docs.puter.com/playground/ai-list-model-providers](https://docs.puter.com/playground/ai-list-model-providers/) for the full model list. Claude Sonnet 4.5/4.6 and Opus 4.6 are recommended. Most providers use the OpenAI format, hence the `openai/` prefix.
 
 **Using a different LLM provider:**  
 Set `PUTER_MODEL`, `PUTER_AUTH_TOKEN`, and `PUTER_API_BASE` to match your provider (any OpenAI-compatible endpoint works). To use Anthropic directly, edit `src/agent_puter/swarm/base_agent.py:make_model()`.
+
+---
+
+### Storage backend
+
+By default, all data is in-memory and lost on restart. To persist:
+
+```env
+# JSON file — good for single-instance dev/staging
+STORAGE_BACKEND=json_file
+STORAGE_PATH=./data/store.json
+
+# Puter cloud KV — uses your PUTER_AUTH_TOKEN above
+STORAGE_BACKEND=puter_kv
+PUTER_KV_BASE=https://api.puter.com/kv   # optional override
+```
+
+The `json_file` backend writes atomically — safe to `Ctrl-C` mid-request. The `puter_kv` backend persists across machines and deployments using the same Puter account.
+
+---
+
+### Admin dashboard
+
+```env
+# Protect all /api/admin/* routes with a shared secret
+ADMIN_API_KEY=change-me-in-production
+```
+
+Set this to a strong random string. The Next.js admin page at `/admin` will prompt for this key. Leave unset to disable admin routes entirely (returns `503`).
+
+---
+
+### Email notifications
+
+All fields are optional — notifications are silently skipped when unset.
+
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=you@example.com
+SMTP_PASS=your-app-password    # Gmail: use an App Password, not your account password
+FROM_EMAIL=noreply@yourdomain.com
+FRONTEND_URL=http://localhost:3000
+```
+
+Emails are sent at three lifecycle points:
+- Proposal ready → `session.client_email`
+- Demo ready → `project.client_id`
+- Delivery complete → `project.client_id`
+
+---
+
+### Multi-tenancy
+
+```env
+# Comma-separated key:tenant pairs
+AGENCY_API_KEYS=secretkey1:acme,secretkey2:contoso
+```
+
+Clients send `X-Agency-Key: secretkey1` (or `Authorization: Bearer secretkey1`). All their sessions and projects are scoped to tenant `"acme"` and won't appear in other tenants' lists. Requests without a valid key land in `"default"`.
+
+---
+
+### MCP integration
+
+```env
+# Attach an MCP server to the Researcher and Engineer agents
+MCP_SERVER_URL=http://localhost:3100/mcp
+```
+
+When set, both agents gain the MCP server's tools with the `mcp_` prefix — enabling real web browsing, database access, or any custom tools your MCP server exposes. Leave blank to run without MCP (agents use their built-in placeholder tools).
 
 ---
 
@@ -186,7 +257,28 @@ Once both services are running:
 3. Chat with the Sales Agent until it acknowledges your requirements.
 4. The session auto-completes and redirects you to `/proposal/{id}`.
 5. Click **Pay Deposit** — use Stripe test card `4242 4242 4242 4242`, any future date, any CVC.
-6. Check `http://localhost:9999/health` for a JSON listing of all agents.
+6. Check `http://localhost:9999/health` for a JSON listing of all agents and feature flags.
+7. Open `http://localhost:3000/admin` and enter your `ADMIN_API_KEY` to see the admin dashboard.
+
+---
+
+## Admin Dashboard
+
+The admin interface lives at `/admin` in the frontend. Enter your `ADMIN_API_KEY` to log in.
+
+- **Projects list** — all projects with status, payment flags, LLM cost, and task progress
+- **Project detail** — task outputs, QA feedback, cost breakdown, demo URL setter, log tail
+- **Sessions list** — all consultation sessions with message counts
+- **Log viewer** — last 500 server events filterable by project
+
+To set a demo URL manually (for projects that deployed outside the sandbox):
+
+```bash
+curl -X POST http://localhost:9999/api/admin/projects/{id}/demo-url \
+  -H "X-Admin-Key: your-admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{"demo_url": "https://example.com/demo"}'
+```
 
 ---
 
@@ -217,7 +309,7 @@ All agents share `src/agent_puter/swarm/base_agent.py`. Changing the provider me
 ```python
 # Anthropic native (no Puter)
 return LiteLLMModel(
-    model_name="claude-3-5-sonnet-20241022",
+    model_name="claude-sonnet-4-6",
     api_key=os.getenv("ANTHROPIC_API_KEY"),
 )
 
@@ -242,14 +334,15 @@ return LiteLLMModel(
 
 ## Persisting Data
 
-`api/_store.py` uses plain in-memory dicts — all sessions and projects are lost on restart. For production, replace the two dicts with calls to your preferred store:
+By default, `STORAGE_BACKEND=memory` — all data resets on restart. Switch to a durable backend by setting `STORAGE_BACKEND` in `.env`:
 
-```python
-# api/_store.py
-import redis  # or your DB client
+```env
+# Local file (survives restarts, single-instance only)
+STORAGE_BACKEND=json_file
+STORAGE_PATH=./data/store.json
 
-sessions: dict[str, ConsultSession] = {}   # replace with Redis/Postgres
-projects: dict[str, Project] = {}          # replace with Redis/Postgres
+# Puter cloud KV (works across deployments)
+STORAGE_BACKEND=puter_kv
 ```
 
-Puter KV, Redis, and PostgreSQL are all viable options; the rest of the codebase only reads from and writes to these two dicts.
+For multi-instance production deployments, use `puter_kv` or implement a custom `AbstractStore` subclass in `api/store.py` backed by Redis, PostgreSQL, or any other store.

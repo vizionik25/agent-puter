@@ -1,6 +1,6 @@
 # Architecture
 
-Agent-Puter runs as a single Starlette process on port 9999. It serves both the REST API consumed by the Next.js frontend and all seven A2A agent endpoints. Every inter-agent call travels over HTTP using the A2A protocol — there are no direct Python `.run()` calls between agents.
+Agent-Puter runs as a single Starlette process on port 9999. It serves the REST API consumed by the Next.js frontend, all seven A2A agent endpoints, and static sandbox files for automated delivery. All inter-agent calls travel over HTTP using the A2A protocol — there are no direct Python `.run()` calls between agents.
 
 ---
 
@@ -10,34 +10,43 @@ Agent-Puter runs as a single Starlette process on port 9999. It serves both the 
 ┌─────────────────────────────────────────────────────────────┐
 │  Browser                                                     │
 │  Next.js 16 — port 3000                                     │
-│  ├── /consult            Chat with Sales Agent              │
+│  ├── /consult            Chat (SSE streaming)               │
 │  ├── /proposal/[id]      View proposal                      │
 │  ├── /pay/[id]/deposit   Stripe 20% deposit form            │
 │  ├── /pay/[id]/final     Stripe 80% balance form            │
 │  ├── /demo/[id]          Live demo (iframe, gated)          │
-│  └── /status/[id]        Progress dashboard (polls 8s)      │
+│  ├── /status/[id]        Progress dashboard (polls 8s)      │
+│  └── /admin              Admin dashboard + project detail   │
 └────────────────────┬────────────────────────────────────────┘
-                     │  JSON REST  (NEXT_PUBLIC_API_URL)
+                     │  JSON REST / SSE  (NEXT_PUBLIC_API_URL)
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Starlette — port 9999                                       │
 │                                                              │
-│  REST API                                                    │
+│  Middleware                                                  │
+│  └── CORSMiddleware (localhost:3000, localhost:9999)        │
+│                                                              │
+│  REST API (api/)                                             │
 │  ├── /api/consult/*        consultation.py                  │
+│  ├── /api/consult/{id}/stream  SSE streaming                │
 │  ├── /api/projects/*       projects.py                      │
-│  └── /api/payments/*       payments.py  ──► Stripe          │
+│  ├── /api/payments/*       payments.py  ──► Stripe          │
+│  └── /api/admin/*          admin.py (X-Admin-Key)          │
 │                                                              │
 │  A2A sub-apps (fasta2a .to_a2a())                           │
 │  ├── /           CEO Agent                                   │
 │  ├── /sales      Sales Agent                                │
 │  ├── /pm         PM Agent                                   │
 │  ├── /product-manager  Product Manager Agent                │
-│  ├── /researcher Researcher Agent                           │
-│  ├── /engineer   Engineer Agent                             │
+│  ├── /researcher Researcher Agent (+ optional MCP)          │
+│  ├── /engineer   Engineer Agent (+ optional MCP)            │
 │  └── /qa         QA Agent                                   │
 │                                                              │
-│  In-memory store                                             │
-│  api/_store.py  { sessions: {}, projects: {} }              │
+│  Static files                                                │
+│  └── /deliveries/{project_id}/  Sandbox delivery hosting   │
+│                                                              │
+│  Persistence (api/store.py)                                  │
+│  └── AbstractStore → MemoryStore | JsonFileStore | PuterKVStore│
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -52,7 +61,7 @@ Each agent is declared in its own module following an identical three-step patte
 from .base_agent import make_model
 from pydantic_ai import Agent
 
-agent = Agent(model=make_model(), instructions=SYSTEM_PROMPT)
+agent = Agent(model=make_model(), instructions=SYSTEM_PROMPT, toolsets=_make_mcp_toolsets())
 
 # 2. Register tools
 @agent.tool_plain
@@ -73,8 +82,8 @@ app = agent.to_a2a(name="...", url=f"{BASE_URL}/mount-path", description="...")
 | `sales_agent.py` | `/sales` | Client intake, project brief |
 | `pm_agent.py` | `/pm` | Task decomposition, assignment, escalation |
 | `product_manager_agent.py` | `/product-manager` | User stories, feature prioritization |
-| `researcher_agent.py` | `/researcher` | Web research, doc summarization |
-| `engineer_agent.py` | `/engineer` | Code generation, file I/O, test execution |
+| `researcher_agent.py` | `/researcher` | Web research, doc summarization (+ MCP) |
+| `engineer_agent.py` | `/engineer` | Code generation, file I/O, test execution, sandbox deploy (+ MCP) |
 | `qa_agent.py` | `/qa` | Output review, PASS/FAIL verdict |
 
 ### Inter-agent communication
@@ -91,6 +100,42 @@ response = await client.send_message(message={
 ```
 
 The response is either a `Task` (with `status.message.parts`) or a `Message` (with `parts` directly). `_call_agent()` in `agency.py` handles both shapes and returns plain text.
+
+---
+
+## Persistence Layer
+
+All session and project data flows through `api/store.py`'s `AbstractStore` interface. The active backend is selected at import time via `STORAGE_BACKEND`:
+
+```
+STORAGE_BACKEND=memory    → MemoryStore    (default — resets on restart)
+STORAGE_BACKEND=json_file → JsonFileStore  (persists to STORAGE_PATH)
+STORAGE_BACKEND=puter_kv  → PuterKVStore   (Puter cloud KV via HTTPS)
+```
+
+Route handlers use the async interface directly:
+
+```python
+from . import _store
+
+session = await _store.store.get_session(session_id)
+await _store.store.set_project(project)
+projects = await _store.store.list_projects(owner_id="acme")
+```
+
+`JsonFileStore` writes atomically via a `.tmp` rename. `PuterKVStore` namespaces keys as `session:{id}` and `project:{id}` and calls `GET/POST /kv/get|set|list` on `PUTER_KV_BASE`.
+
+---
+
+## Multi-tenancy
+
+`middleware.py:resolve_tenant(request)` extracts a `tenant_id` from the incoming request:
+
+1. Checks `X-Agency-Key` header
+2. Falls back to `Authorization: Bearer <key>`
+3. Returns `"default"` if no recognised key is found
+
+Keys are mapped to tenants via `AGENCY_API_KEYS=key1:tenant1,key2:tenant2`. The `owner_id` is stored on every `ConsultSession` and `Project`. Store list methods accept an `owner_id` filter so each tenant sees only their own data.
 
 ---
 
@@ -112,10 +157,90 @@ Client request text
            │          └─ FAIL → increment retry, re-execute (max 5)
            │                     └─ retries exhausted → [A2A]─► CEO escalation
            │
-    └─[A2A]─► CEO Agent        → approve_delivery
+    ├─[A2A]─► CEO Agent        → approve_delivery
+    └──────► _auto_deploy()    → generate HTML, deploy to /deliveries/{id}/
 ```
 
-The `Agency` instance is constructed per-request inside `consultation.py`'s `complete_session` handler. There is no persistent Agency singleton.
+Each A2A call is tracked: `project.llm_requests += 1`, `project.tokens_used += ~2000`, `project.llm_cost_usd += estimated_cost`. Per-task cost rolls up into `task.cost_usd`.
+
+---
+
+## LLM Cost Tracking
+
+`agency.py` tracks a fixed estimate of `~2000 tokens` per A2A call using approximate Claude Sonnet pricing:
+
+| Token type | Rate |
+|-----------|------|
+| Input | $3.00 / MTok |
+| Output | $15.00 / MTok |
+
+The `consultation.py` route also captures real `RunResult.usage()` data when `sales_agent.run()` is called directly (non-A2A path). Totals accumulate on `Project.tokens_used`, `Project.llm_requests`, and `Project.llm_cost_usd`. Task-level detail is in `Task.tokens_used` and `Task.cost_usd`.
+
+Exposed via `GET /api/projects/{id}/usage`.
+
+---
+
+## Streaming Chat
+
+The `POST /api/consult/{id}/stream` endpoint uses pydantic-ai's `run_stream()` API and returns a `text/event-stream` response:
+
+```
+data: {"type": "chunk", "text": "Hello"}
+data: {"type": "chunk", "text": " there"}
+data: {"type": "done",  "status": "active"}
+```
+
+The frontend `consultStream()` function in `lib/api.ts` reads the `ReadableStream` chunk-by-chunk and calls `onChunk(text)` for each delta. The chat UI writes each chunk into the active agent bubble in real time. It falls back to non-streaming `consultMessage()` if the stream endpoint is unavailable.
+
+---
+
+## Automated Delivery
+
+After all tasks pass QA, `Agency._auto_deploy()`:
+
+1. Collects `task.output` from every `DONE` task
+2. Generates a single HTML page summarising all deliverables
+3. Tries to dispatch a `deploy_to_sandbox` call via the Engineer agent (A2A)
+4. Falls back to writing `deliveries/{project_id}/index.html` directly if the A2A call doesn't parse correctly
+5. Sets `project.demo_url` and `project.deployment_status = "deployed"`
+
+The Engineer agent's `deploy_to_sandbox(project_id, content, filename)` tool writes to `deliveries/{project_id}/{filename}`. Starlette serves this directory as `StaticFiles` at `/deliveries/`.
+
+---
+
+## MCP Integration
+
+When `MCP_SERVER_URL` is set, both the Researcher and Engineer agents attach an `MCPServerHTTP` toolset:
+
+```python
+from pydantic_ai.mcp import MCPServerHTTP
+toolsets = [MCPServerHTTP(url=mcp_url, tool_prefix="mcp")]
+agent = Agent(model=make_model(), instructions=..., toolsets=toolsets)
+```
+
+Tools from the MCP server are exposed to the LLM with the `mcp_` prefix alongside the agent's built-in tools. The MCP server connection is established per-agent-run by pydantic-ai's toolset lifecycle. If `MCP_SERVER_URL` is not set or the connection fails, the agent starts normally with only its built-in tools.
+
+---
+
+## Email Notifications
+
+`notifications.py` sends transactional emails at three lifecycle points:
+
+| Trigger | Function | Recipient |
+|---------|----------|-----------|
+| `POST /api/consult/{id}/complete` | `notify_proposal_ready()` | `session.client_email` |
+| `POST /api/projects/{id}/demo-url` | `notify_demo_ready()` | `project.client_id` |
+| Stripe `payment_intent.succeeded` (final) | `notify_delivery_complete()` | `project.client_id` |
+
+All notifications are fire-and-forget (exceptions are logged, never re-raised). They are silently skipped when `SMTP_HOST` / `SMTP_USER` / `SMTP_PASS` are not set.
+
+---
+
+## Admin System
+
+`api/admin.py` exposes a management API protected by `X-Admin-Key: <ADMIN_API_KEY>`. An in-process `deque(maxlen=500)` ring buffer captures log events written by `log_event(level, source, message, project_id)` throughout the codebase.
+
+The Next.js `/admin` page authenticates with the admin key client-side, lists all projects with aggregate stats (revenue, LLM cost), and links to per-project detail pages. The `/admin/projects/[id]` page shows full task output, QA feedback, cost metrics, demo URL setter, and the log tail filtered to that project.
 
 ---
 
@@ -124,26 +249,35 @@ The `Agency` instance is constructed per-request inside `consultation.py`'s `com
 ```
 ConsultSession
   ├── id: UUID
+  ├── owner_id: str           (tenant namespace)
   ├── messages: ConsultMessage[]
   └── project_id → Project.id
 
 Project
   ├── id: UUID
-  ├── status: ProjectStatus enum
+  ├── owner_id: str           (tenant namespace)
+  ├── status: ProjectStatus
   ├── tasks: Task[]
   ├── proposal: Proposal | null
+  ├── llm_requests: int       (cost tracking)
+  ├── llm_cost_usd: float     (cost tracking)
+  ├── tokens_used: int        (cost tracking)
   ├── stripe_deposit_intent_id
   ├── stripe_final_intent_id
   ├── deposit_paid: bool
-  └── final_paid: bool
+  ├── final_paid: bool
+  ├── demo_url: str | null
+  └── deployment_status: str | null
 
 Task
   ├── id: UUID
-  ├── status: TaskStatus enum
-  ├── assigned_to: "engineer" | "researcher" | "qa" | ...
+  ├── status: TaskStatus
+  ├── assigned_to: str
   ├── output: str | null
   ├── qa_feedback: str | null
-  └── retry_count: int
+  ├── retry_count: int
+  ├── tokens_used: int        (task-level cost tracking)
+  └── cost_usd: float         (task-level cost tracking)
 
 Proposal
   ├── total_price_usd
@@ -151,14 +285,7 @@ Proposal
   └── final_amount_usd    (80%)
 ```
 
-All data lives in two plain dicts in `api/_store.py`:
-
-```python
-sessions: dict[str, ConsultSession]
-projects: dict[str, Project]
-```
-
-Both reset on server restart. Replace with a durable store (Redis, PostgreSQL, Puter KV) for production.
+All data lives in the `AbstractStore` — two namespaced collections of `ConsultSession` and `Project`. The active backend is controlled by `STORAGE_BACKEND`.
 
 ---
 
@@ -173,6 +300,7 @@ Frontend                    Backend                 Stripe
    ├─stripe.confirmPayment() ──────────────────────────────────►│
    │                           │◄─── webhook (succeeded) ──────┤
    │                           │  project.deposit_paid = True  │
+   │                           │  → email: notify_demo_ready() │
    │                           │                      │
    │   (client views demo)     │                      │
    │                           │                      │
@@ -181,9 +309,8 @@ Frontend                    Backend                 Stripe
    ├─stripe.confirmPayment() ──────────────────────────────────►│
    │                           │◄─── webhook (succeeded) ──────┤
    │                           │  project.final_paid = True    │
+   │                           │  → email: notify_delivery()   │
 ```
-
-Stripe webhook signature verification uses `STRIPE_WEBHOOK_SECRET`. In dev mode (secret not set), the webhook trusts the payload without verification.
 
 ---
 
@@ -193,16 +320,16 @@ Stripe webhook signature verification uses `STRIPE_WEBHOOK_SECRET`. In dev mode 
 @asynccontextmanager
 async def _lifespan(app):
     async with _ceo_app.task_manager:
-        async with _sales_app.task_manager:
-            async with _pm_app.task_manager:
-                async with _researcher_app.task_manager:
-                    async with _engineer_app.task_manager:
-                        async with _qa_app.task_manager:
-                            async with _product_manager_app.task_manager:
-                                yield
+      async with _sales_app.task_manager:
+        async with _pm_app.task_manager:
+          async with _researcher_app.task_manager:
+            async with _engineer_app.task_manager:
+              async with _qa_app.task_manager:
+                async with _product_manager_app.task_manager:
+                  yield
 ```
 
-Each `task_manager` is a fasta2a async context that must be entered before the app handles any A2A requests. The nesting order is arbitrary but must be symmetric on exit.
+`Path("deliveries").mkdir(exist_ok=True)` runs at module import to ensure the sandbox directory exists before the static file handler is mounted.
 
 ---
 
@@ -216,9 +343,7 @@ Each `task_manager` is a fasta2a async context that must be entered before the a
 | `PUTER_AUTH_TOKEN` | Puter session token |
 | `PUTER_API_BASE` | `https://api.puter.com/puterai/openai/v1` |
 
-`custom_llm_provider="openai"` is hardcoded because Puter exposes an OpenAI-compatible endpoint. Switching providers means updating only `make_model()`.
-
-`pydantic-ai-litellm` bridges pydantic-ai's tool spec to LiteLLM's format automatically — you do not need to manually convert tool schemas.
+`custom_llm_provider="openai"` is hardcoded because Puter exposes an OpenAI-compatible endpoint. `pydantic-ai-litellm` handles tool schema conversion automatically for any provider.
 
 ---
 
