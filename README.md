@@ -105,9 +105,10 @@ Client visits portal
 |---|---|---|
 | 🧠 **CEO** | Strategic goals, token budgets, final approval | `allocate_budget`, `approve_delivery` |
 | 💼 **Sales** | Client intake, scope clarification, project brief | `create_project_brief`, `send_proposal` |
-| 📋 **PM** | Task decomposition, milestone tracking | `create_task`, `update_task_status` |
-| 🔬 **Researcher** | Web research, document summarization | `web_search`, `summarize_document` |
-| 🛠️ **Engineer** | Code generation, file I/O, test execution | `write_file`, `read_file`, `run_command` |
+| 📋 **PM** | Task decomposition, milestone tracking | `create_task_list`, `update_task_status` |
+| 🗂️ **Product Manager** | User stories, feature prioritization, acceptance criteria | `write_user_stories`, `prioritize_features` |
+| 🔬 **Researcher** | Web research, document summarization | `web_search`, `summarize_docs` |
+| 🛠️ **Engineer** | Code generation, file I/O, test execution | `write_file`, `read_file`, `run_tests` |
 | ✅ **QA** | Output review, standards enforcement | `review_output`, `check_standards` |
 
 All agents are built on the same pattern, this is a must for the LiteLLMModel from pydantic-ai-litellm to work with Puter.js if you arent using Puter.js you can alter the pattern to fit your needs. **NOTE**  pydantic-ai-litellm already handles the OpenAI tool spec conversion for you, so if you are not using an OpenAI compatible API you dont have to worry about the tool spec conversion as its automatically handled. This is the main reason for choosing this method of integrating LiteLLM with pydantic-ai, over the native method from the pydantic-ai team.:
@@ -408,11 +409,12 @@ Each agent exposes the full [A2A protocol](https://github.com/pydantic/pydantic-
 | `/` or `/ceo/` | CEO Agent |
 | `/sales/` | Sales Agent |
 | `/pm/` | Project Manager |
+| `/product-manager/` | Product Manager |
 | `/researcher/` | Researcher |
 | `/engineer/` | Engineer |
 | `/qa/` | QA Agent |
 
-Interactive docs for each agent: `/docs`, `/sales/docs`, `/pm/docs`, etc.
+Interactive docs for each agent: `/docs`, `/sales/docs`, `/pm/docs`, `/product-manager/docs`, etc.
 
 ---
 
