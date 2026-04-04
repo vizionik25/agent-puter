@@ -111,7 +111,7 @@ Client visits portal
 | 🛠️ **Engineer** | Code generation, file I/O, test execution | `write_file`, `read_file`, `run_tests` |
 | ✅ **QA** | Output review, standards enforcement | `review_output`, `check_standards` |
 
-All agents are built on the same pattern, this is a must for the LiteLLMModel from pydantic-ai-litellm to work with Puter.js if you arent using Puter.js you can alter the pattern to fit your needs. **NOTE**  pydantic-ai-litellm already handles the OpenAI tool spec conversion for you, so if you are not using an OpenAI compatible API you dont have to worry about the tool spec conversion as its automatically handled. This is the main reason for choosing this method of integrating LiteLLM with pydantic-ai, over the native method from the pydantic-ai team.:
+All agents are built on the same pattern, this is a must for the LiteLLMModel from pydantic-ai-litellm to work with Puter.js if you arent using Puter.js you can alter the pattern to fit your needs. **NOTE**  pydantic-ai-litellm already handles the OpenAI tool spec conversion for you, so if you are not using an OpenAI compatible API you dont have to worry about the tool spec conversion as its automatically handled.:
 
 ```python
 from pydantic_ai import Agent
