@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 import { getCredits, getTier } from "@/lib/billing";
 import Link from "next/link";
 
+/**
+ * Small pill badge that displays the user's current credit balance and subscription tier name,
+ * linking to the billing page and refreshing on window focus.
+ *
+ * @returns {JSX.Element} A linked badge showing credit count and tier, or null while loading.
+ */
 export default function CreditBadge() {
   const [credits, setCredits] = useState<number | null>(null);
   const [tierName, setTierName] = useState<string>("");

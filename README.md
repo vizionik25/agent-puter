@@ -58,12 +58,14 @@ Three components, one `docker compose up`:
 │  frontend/          Next.js 16  (port 3000)      │
 │  ├── /                Landing page               │
 │  ├── /consult         AI consultation chat (SSE) │
+│  ├── /dashboard       User dashboard & projects  │
 │  ├── /proposal/[id]   Proposal + credit CTA      │
 │  ├── /billing         Subscription & credit mgmt │
 │  ├── /demo/[id]       Sandbox demo viewer        │
 │  └── /status/[id]     Live progress tracker      │
 │                                                  │
 │  lib/api.ts           Typed REST API client      │
+│  lib/auth.ts          GitHub OAuth session       │
 │  lib/billing.ts       Client-side billing mock   │
 └─────────────────────┬───────────────────────────┘
                       │  REST / JSON
@@ -72,16 +74,22 @@ Three components, one `docker compose up`:
 │  src/agent_puter/swarm/   Starlette  (port 9999) │
 │                                                  │
 │  ── Client API ──────────────────────────────── │
+│  GET  /api/auth/github                           │
+│  GET  /api/auth/callback                         │
+│  GET  /api/auth/me                               │
+│  POST /api/auth/logout                           │
 │  POST /api/consult/start                         │
 │  POST /api/consult/{id}/message                  │
 │  POST /api/consult/{id}/stream      (SSE)        │
 │  GET  /api/consult/{id}                          │
 │  POST /api/consult/{id}/complete                 │
+│  GET  /api/projects                              │
 │  GET  /api/projects/{id}                         │
 │  GET  /api/projects/{id}/proposal                │
 │  POST /api/projects/{id}/demo-url                │
 │  GET  /api/projects/{id}/demo                    │
 │  GET  /api/projects/{id}/usage                   │
+│  POST /api/projects/{id}/push-github             │
 │  POST /api/payments/deposit                      │
 │  POST /api/payments/final                        │
 │  POST /api/payments/webhook                      │
@@ -168,6 +176,7 @@ Formula: `totalCredits = (inputTokens / 1M × 3) + (outputTokens / 1M × 15)`
 - Node.js 20+ and npm
 - A [Puter.js](https://puter.com) account for free LLM inference (or any OpenAI-compatible API)
 - A [Stripe](https://stripe.com) account (test keys work fine)
+- A [GitHub OAuth App](https://github.com/settings/developers) *(optional — required for the login button and GitHub delivery features)*
 
 ### 1. Clone and configure
 
@@ -175,8 +184,11 @@ Formula: `totalCredits = (inputTokens / 1M × 3) + (outputTokens / 1M × 15)`
 git clone https://github.com/vizionik25/agent-puter.git
 cd agent-puter
 cp .env.example .env
-# Edit .env: fill in PUTER_AUTH_TOKEN, PUTER_MODEL, PUTER_API_BASE, Stripe keys
+# Edit .env: fill in PUTER_AUTH_TOKEN, PUTER_MODEL, PUTER_API_BASE,
+#             Stripe keys, and (optional) GitHub OAuth vars
 ```
+
+> **GitHub login (optional):** Create an OAuth App at [github.com/settings/developers](https://github.com/settings/developers). Set the callback URL to `http://localhost:3000/api/auth/callback`. Copy the client ID and secret into `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.env`. Set `SESSION_SECRET` to any strong random string.
 
 ### 2. Start the backend
 
@@ -244,6 +256,9 @@ docker compose up --build -d
 | `SMTP_PASS` | No | — | SMTP password or app password |
 | `FROM_EMAIL` | No | `SMTP_USER` | Sender address for notifications |
 | `FRONTEND_URL` | No | `http://localhost:3000` | Base URL for email action links |
+| `GITHUB_CLIENT_ID` | No | — | GitHub OAuth App client ID. Required for GitHub login. |
+| `GITHUB_CLIENT_SECRET` | No | — | GitHub OAuth App client secret. Required for GitHub login. |
+| `SESSION_SECRET` | No | random | HMAC key for signing session tokens. Set to a strong random string in production. |
 | `MCP_SERVER_URL` | No | — | MCP server URL; enables MCP tools on Researcher + Engineer |
 
 ---
@@ -274,25 +289,29 @@ agent-puter/
 │           ├── __init__.py          Aggregates all API routes
 │           ├── _store.py            Legacy alias (delegates to store.py)
 │           ├── store.py             Pluggable storage backends
+│           ├── auth.py              /api/auth/* routes (GitHub OAuth)
 │           ├── consultation.py      /api/consult/* routes
+│           ├── github_delivery.py   Push deliverables to GitHub repo
 │           ├── projects.py          /api/projects/* routes
 │           ├── payments.py          /api/payments/* routes
 │           └── admin.py             /api/admin/* routes
 │
 ├── frontend/
 │   ├── app/
-│   │   ├── layout.tsx               Root layout + nav + CreditBadge
+│   │   ├── layout.tsx               Root layout + nav + UserMenu
 │   │   ├── page.tsx                 Landing page
 │   │   ├── consult/page.tsx         Consultation chat (SSE streaming)
+│   │   ├── dashboard/page.tsx       User dashboard & project management
 │   │   ├── proposal/[id]/page.tsx   Proposal + credit execution CTA
 │   │   ├── billing/page.tsx         Subscription & credit management
 │   │   ├── demo/[id]/page.tsx       Sandbox demo viewer
 │   │   └── status/[id]/page.tsx     Real-time task progress
 │   ├── components/
-│   │   ├── CreditBadge.tsx          Live credit balance in nav
+│   │   ├── UserMenu.tsx             GitHub auth nav menu + dropdown
 │   │   └── MockStripeModal.tsx      Simulated payment modal
 │   ├── lib/
 │   │   ├── api.ts                   Typed REST client
+│   │   ├── auth.ts                  GitHub OAuth session helpers
 │   │   └── billing.ts               Client-side billing (localStorage)
 │   └── next.config.ts               Standalone output mode
 │

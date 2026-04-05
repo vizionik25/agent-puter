@@ -17,6 +17,12 @@ import { proposalGet, Proposal } from "@/lib/api";
 import { getState, canExecuteProject, deductCredit, estimateProjectCost, PRICING, BillingState, CostEstimate } from "@/lib/billing";
 import Link from "next/link";
 
+/**
+ * Project proposal page that fetches and displays the AI-generated proposal for a given project ID,
+ * including a token-based credit cost breakdown and an execute button that deducts credits to kick off the agent swarm.
+ *
+ * @returns {JSX.Element} The formatted proposal with execution CTA, or an error/loading state.
+ */
 export default function ProposalPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();

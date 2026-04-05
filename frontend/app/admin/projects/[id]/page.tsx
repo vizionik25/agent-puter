@@ -54,6 +54,12 @@ const STATUS_COLORS: Record<string, string> = {
   failed: "bg-red-900 text-red-200",
 };
 
+/**
+ * Admin detail page for a single project showing metrics, an editable demo URL setter,
+ * a collapsible per-task output and QA feedback list, and a filtered recent log stream.
+ *
+ * @returns {JSX.Element} The full project detail view, or a loading/error state.
+ */
 export default function AdminProjectPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();

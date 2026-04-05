@@ -26,6 +26,12 @@ const STATUS_COLOR: Record<string, string> = {
   failed: "badge-red",
 };
 
+/**
+ * Real-time project status page that polls the backend every 8 seconds to display
+ * phase progress, per-task status, and a View Demo link once the project is delivered.
+ *
+ * @returns {JSX.Element} The status dashboard with phase tracker and task list, or an error/loading state.
+ */
 export default function StatusPage() {
   const { id } = useParams<{ id: string }>();
   const [project, setProject] = useState<Project | null>(null);

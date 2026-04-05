@@ -1,5 +1,55 @@
 import Link from "next/link";
 
+const tiers = [
+  {
+    id: "starter",
+    name: "Starter",
+    price: 49,
+    credits: 30,
+    highlight: false,
+    perks: ["30 credits / month", "All 6 AI agents", "Real-time task tracker", "Email support"],
+  },
+  {
+    id: "pro",
+    name: "Pro",
+    price: 149,
+    credits: 100,
+    highlight: true,
+    perks: ["100 credits / month", "All 6 AI agents", "Priority queue", "Slack integration", "Priority support"],
+  },
+  {
+    id: "business",
+    name: "Business",
+    price: 399,
+    credits: 300,
+    highlight: false,
+    perks: ["300 credits / month", "All 6 AI agents", "Dedicated agent pool", "SLA guarantee", "Dedicated account manager"],
+  },
+];
+
+const testimonials = [
+  {
+    quote: "We shipped a working internal dashboard in four days. Our usual dev shop would have quoted six weeks. I was stunned.",
+    name: "Jordan Mercer",
+    title: "CTO, Fieldline Logistics",
+  },
+  {
+    quote: "The transparency is unlike anything I've seen — you can watch every agent decision in real time. It's like having a glass-box dev team.",
+    name: "Priya Shankar",
+    title: "Head of Product, NovaBridge",
+  },
+  {
+    quote: "We used the Pro tier for three back-to-back projects. Burned through credits fast, but the ROI was obvious by week two.",
+    name: "Marcus Oyelaran",
+    title: "Founder, Greycoast Labs",
+  },
+  {
+    quote: "Skeptical at first — a swarm of AI agents sounded like a buzzword. By the time the demo landed I was sold.",
+    name: "Dana Whitfield",
+    title: "VP Engineering, Tandem Health",
+  },
+];
+
 const features = [
   {
     icon: "🤖",
@@ -30,6 +80,12 @@ const steps = [
   { n: "04", title: "Delivered", desc: "Agents execute, QA reviews, and you receive a live demo when it's done." },
 ];
 
+/**
+ * Marketing landing page that presents the AI consulting agency with a hero section,
+ * feature highlights, how-it-works steps, subscription pricing tiers, client testimonials, and a CTA banner.
+ *
+ * @returns {JSX.Element} The full landing page layout including footer.
+ */
 export default function LandingPage() {
   return (
     <div>
@@ -81,9 +137,12 @@ export default function LandingPage() {
             <Link href="#how" className="btn btn-outline">
               How it works
             </Link>
+            <Link href="#pricing" className="btn btn-outline">
+              Pricing
+            </Link>
           </div>
           <p style={{ marginTop: "1rem", fontSize: "0.85rem", color: "#475569" }}>
-            No sign-up required. Talk to the AI now.
+            Sign up in one click with GitHub — no forms, no passwords.
           </p>
         </div>
       </section>
@@ -141,6 +200,127 @@ export default function LandingPage() {
                 </div>
                 <h3 style={{ marginBottom: "0.5rem" }}>{s.title}</h3>
                 <p style={{ fontSize: "0.9rem" }}>{s.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Pricing ──────────────────────────────────────── */}
+      <section id="pricing" style={{ padding: "5rem 0" }}>
+        <div className="container">
+          <h2 style={{ textAlign: "center", marginBottom: "0.5rem" }}>Simple, transparent pricing</h2>
+          <p style={{ textAlign: "center", marginBottom: "3rem", color: "#94a3b8" }}>
+            Subscribe for a monthly credit allowance. Top up any time with credit packs.
+          </p>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+              gap: "1.25rem",
+              alignItems: "start",
+            }}
+          >
+            {tiers.map((t) => (
+              <div
+                key={t.id}
+                className="card fade-up"
+                style={{
+                  position: "relative",
+                  borderColor: t.highlight ? "rgba(168,85,247,.6)" : undefined,
+                  background: t.highlight
+                    ? "linear-gradient(135deg, rgba(109,40,217,.18), rgba(168,85,247,.08))"
+                    : undefined,
+                }}
+              >
+                {t.highlight && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "-1px",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      background: "linear-gradient(135deg,#a855f7,#ec4899)",
+                      borderRadius: "0 0 8px 8px",
+                      padding: "0.2rem 0.9rem",
+                      fontSize: "0.72rem",
+                      fontWeight: 700,
+                      letterSpacing: "0.05em",
+                      color: "#fff",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    MOST POPULAR
+                  </div>
+                )}
+                <h3 style={{ marginBottom: "0.25rem", marginTop: t.highlight ? "0.75rem" : undefined }}>{t.name}</h3>
+                <div style={{ marginBottom: "1.25rem" }}>
+                  <span
+                    style={{
+                      fontSize: "2.5rem",
+                      fontWeight: 800,
+                      background: "var(--violet-g)",
+                      WebkitBackgroundClip: "text",
+                      WebkitTextFillColor: "transparent",
+                      backgroundClip: "text",
+                    }}
+                  >
+                    ${t.price}
+                  </span>
+                  <span style={{ color: "#64748b", fontSize: "0.9rem" }}> / mo</span>
+                </div>
+                <ul style={{ listStyle: "none", padding: 0, margin: "0 0 1.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  {t.perks.map((perk) => (
+                    <li key={perk} style={{ fontSize: "0.9rem", color: "#94a3b8" }}>
+                      <span style={{ color: "#a855f7", marginRight: "0.5rem" }}>✓</span>
+                      {perk}
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  href="/consult"
+                  className={t.highlight ? "btn btn-primary" : "btn btn-outline"}
+                  style={{ display: "block", textAlign: "center" }}
+                >
+                  Get started →
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Testimonials ─────────────────────────────────── */}
+      <section style={{ padding: "5rem 0" }}>
+        <div className="container">
+          <h2 style={{ textAlign: "center", marginBottom: "0.5rem" }}>What clients are saying</h2>
+          <p style={{ textAlign: "center", marginBottom: "3rem", color: "#94a3b8" }}>
+            Real results from teams who shipped with Agent-Puter.
+          </p>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: "1.25rem",
+            }}
+          >
+            {testimonials.map((t) => (
+              <div key={t.name} className="card fade-up">
+                <p
+                  style={{
+                    fontSize: "0.95rem",
+                    color: "#cbd5e1",
+                    lineHeight: 1.65,
+                    marginBottom: "1.25rem",
+                    fontStyle: "italic",
+                  }}
+                >
+                  &ldquo;{t.quote}&rdquo;
+                </p>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: "0.9rem", color: "#e2e8f0" }}>{t.name}</div>
+                  <div style={{ fontSize: "0.8rem", color: "#64748b" }}>{t.title}</div>
+                </div>
               </div>
             ))}
           </div>

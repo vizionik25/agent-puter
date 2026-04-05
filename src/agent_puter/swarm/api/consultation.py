@@ -31,12 +31,31 @@ def _owner_id(request: Request) -> str:
 
 
 def _estimate_cost(request_tokens: int, response_tokens: int) -> float:
-    """Rough cost estimate in USD based on Claude Sonnet pricing ($3/$15 per MTok)."""
+    """Rough cost estimate in USD based on Claude Sonnet pricing ($3/$15 per MTok).
+
+    Args:
+        request_tokens (int): Number of input tokens consumed.
+        response_tokens (int): Number of output tokens generated.
+
+    Returns:
+        float: Estimated cost in USD.
+    """
     return (request_tokens * 3.0 + response_tokens * 15.0) / 1_000_000
 
 
 async def start(request: Request) -> JSONResponse:
-    """Create a new consultation session and get the sales agent's opening greeting."""
+    """Create a new consultation session and get the sales agent's opening greeting.
+
+    Args:
+        request (Request): POST body must contain ``client_name`` (str) and
+            ``client_email`` (str). Optional fields: ``initial_message`` / ``message``
+            (str), ``github_user_id`` (str).
+
+    Returns:
+        JSONResponse: 200 ``{"session_id", "reply", "status"}`` on success;
+        400 for invalid JSON; 422 if ``client_name`` or ``client_email`` are
+        missing.
+    """
     try:
         body = await request.json()
     except Exception:
@@ -56,6 +75,7 @@ async def start(request: Request) -> JSONResponse:
         client_name=client_name,
         client_email=client_email,
         owner_id=_owner_id(request),
+        github_user_id=body.get("github_user_id") or None,
     )
 
     prompt = (
@@ -87,7 +107,19 @@ async def start(request: Request) -> JSONResponse:
 
 
 async def send_message(request: Request) -> JSONResponse:
-    """Append a user message to the session and return the agent's reply."""
+    """Append a user message to the session and return the agent's reply.
+
+    Also tracks LLM token usage against the linked project when one exists.
+
+    Args:
+        request (Request): Path param ``session_id`` (str); POST body must
+            contain ``message`` (str).
+
+    Returns:
+        JSONResponse: 200 ``{"reply", "status"}`` on success; 400 if the
+        session is already complete or the JSON body is invalid; 404 if the
+        session does not exist; 422 if ``message`` is missing or empty.
+    """
     session_id = request.path_params["session_id"]
     session = await _store.store.get_session(session_id)
     if not session:
@@ -149,12 +181,23 @@ async def send_message(request: Request) -> JSONResponse:
 
 
 async def stream_message(request: Request) -> StreamingResponse:
-    """
-    SSE streaming version of /message.
+    """Stream the agent's reply as server-sent events.
 
-    Emits server-sent events:
-      data: {"type": "chunk", "text": "..."}
-      data: {"type": "done", "status": "active"}
+    SSE streaming version of ``/message``. Emits events:
+
+    - ``{"type": "chunk", "text": "..."}`` — incremental text delta
+    - ``{"type": "done", "status": "active"}`` — stream complete
+    - ``{"type": "error", "message": "..."}`` — on any failure
+
+    Args:
+        request (Request): Path param ``session_id`` (str); POST body must
+            contain ``message`` (str).
+
+    Returns:
+        StreamingResponse: ``text/event-stream`` response (200). Error
+        conditions (session not found, already complete, bad JSON, missing
+        message) are delivered as SSE error events with the corresponding HTTP
+        status code (404, 400, 400, 422 respectively).
     """
     session_id = request.path_params["session_id"]
     session = await _store.store.get_session(session_id)
@@ -223,7 +266,17 @@ async def stream_message(request: Request) -> StreamingResponse:
 
 
 async def get_session(request: Request) -> JSONResponse:
-    """Return the full session transcript and status."""
+    """Return the full session transcript and status.
+
+    Args:
+        request (Request): Path param ``session_id`` (str).
+
+    Returns:
+        JSONResponse: 200 ``{"session_id", "client_name", "client_email",
+        "owner_id", "messages", "project_id", "status"}`` where ``messages``
+        is a list of ``{"role", "content", "timestamp"}`` objects; 404 if the
+        session does not exist.
+    """
     session_id = request.path_params["session_id"]
     session = await _store.store.get_session(session_id)
     if not session:
@@ -244,7 +297,20 @@ async def get_session(request: Request) -> JSONResponse:
 
 
 async def complete_session(request: Request) -> JSONResponse:
-    """Mark the consultation complete and kick off the agency intake loop."""
+    """Mark the consultation complete and kick off the agency intake loop.
+
+    Consolidates the session transcript, runs ``Agency.handle_client_request``
+    to produce a project and proposal, persists all mutated state, and fires a
+    proposal-ready email notification.
+
+    Args:
+        request (Request): Path param ``session_id`` (str).
+
+    Returns:
+        JSONResponse: 200 ``{"session_id", "project_id", "status"}``; if the
+        session was already complete, ``status`` is ``"already_complete"``; 404
+        if the session does not exist.
+    """
     session_id = request.path_params["session_id"]
     session = await _store.store.get_session(session_id)
     if not session:
@@ -282,6 +348,7 @@ async def complete_session(request: Request) -> JSONResponse:
     # Persist any projects mutated by the agency loop
     for pid, proj in deps.projects.items():
         proj.owner_id = session.owner_id
+        proj.github_user_id = session.github_user_id
         await _store.store.set_project(proj)
 
     project = await _store.store.get_project(project_id)

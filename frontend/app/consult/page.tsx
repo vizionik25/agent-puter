@@ -24,6 +24,12 @@ interface Bubble {
 
 type Phase = "intro" | "chat";
 
+/**
+ * Two-phase consultation chat page: an intro form collects client name, email, and initial description,
+ * then transitions to a streaming chat with the AI Sales agent that auto-redirects to the proposal on completion.
+ *
+ * @returns {JSX.Element} Either the intro form or the full-height chat interface.
+ */
 export default function ConsultPage() {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("intro");

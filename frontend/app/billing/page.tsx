@@ -22,6 +22,12 @@ interface ModalConfig {
   onSuccess: () => void;
 }
 
+/**
+ * Subscription and credit management page that shows the current plan, credit balance,
+ * plan upgrade/downgrade options, one-time credit pack purchases, and a collapsible transaction ledger.
+ *
+ * @returns {JSX.Element} The billing dashboard with plan cards, credit packs, and ledger, or null while loading.
+ */
 export default function BillingPage() {
   const [billing, setBilling] = useState<BillingState | null>(null);
   const [days, setDays] = useState(0);

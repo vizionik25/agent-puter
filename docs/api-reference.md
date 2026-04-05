@@ -10,6 +10,58 @@ All endpoints return JSON. Errors always include an `"error"` string field.
 
 ---
 
+### Authentication
+
+GitHub OAuth 2.0. The session is maintained via an httpOnly cookie (`ap_session`).
+
+#### `GET /api/auth/github`
+
+Redirect the browser to GitHub's OAuth consent screen. Sets a CSRF state cookie (`ap_oauth_state`, 5-minute TTL).
+
+**Response:** `302` redirect to `https://github.com/login/oauth/authorize`
+
+---
+
+#### `GET /api/auth/callback`
+
+OAuth callback. Exchanges the authorization code for an access token, fetches the GitHub user profile, upserts the `User` record in the store, and sets the session cookie.
+
+**Query params:** `code` (string), `state` (string — must match `ap_oauth_state` cookie)
+
+**Response:** `302` redirect to `/dashboard`
+
+**Errors:** `400` missing code/state or state mismatch
+
+---
+
+#### `GET /api/auth/me`
+
+Return the currently authenticated user's profile.
+
+**Response `200`**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `github_id` | string | GitHub user ID |
+| `login` | string | GitHub username |
+| `name` | string \| null | Display name |
+| `email` | string \| null | Primary email |
+| `avatar_url` | string | GitHub avatar URL |
+| `tier` | string | Subscription tier (`"free"`, `"starter"`, `"pro"`, `"business"`) |
+| `credits` | number | Current credit balance |
+
+**Errors:** `401` no valid session cookie
+
+---
+
+#### `POST /api/auth/logout`
+
+Clear the session cookie.
+
+**Response `200`:** `{ "ok": true }`
+
+---
+
 ### Consultation
 
 #### `POST /api/consult/start`
@@ -118,6 +170,30 @@ Mark session complete and trigger the agency loop (Sales → CEO → PM → task
 ---
 
 ### Projects
+
+#### `GET /api/projects`
+
+List all projects belonging to the currently authenticated user. Requires a valid session cookie.
+
+**Response `200`:** Array of `ProjectSummary`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `project_id` | string | |
+| `name` | string | |
+| `status` | string | Current lifecycle phase |
+| `deposit_paid` | bool | |
+| `final_paid` | bool | |
+| `total_price_usd` | number | |
+| `demo_available` | bool | True when demo URL is set and deposit is paid |
+| `github_repo_url` | string \| null | Set after a successful push-github |
+| `progress` | `{ done: number, total: number }` | Task completion counts |
+| `created_at` | string | ISO 8601 |
+| `updated_at` | string | ISO 8601 |
+
+**Errors:** `401` not authenticated
+
+---
 
 #### `GET /api/projects/{project_id}`
 
@@ -236,6 +312,23 @@ Fetch LLM token usage and estimated cost for a project.
 `TaskUsage`: `{ task_id, title, tokens_used, cost_usd }`
 
 **Errors:** `404` project not found
+
+---
+
+#### `POST /api/projects/{project_id}/push-github`
+
+Push all files from `deliveries/{project_id}/` to a new public GitHub repository in the authenticated user's account. Requires a valid session cookie.
+
+The repo is named `ap-{slugified-name}-{project_id[:8]}`. If the repo already exists, files are created or updated in place.
+
+**Response `200`**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `project_id` | string | |
+| `repo_url` | string | HTML URL of the created GitHub repository |
+
+**Errors:** `401` not authenticated · `404` project not found · `400` no GitHub access token on file · `502` GitHub API error
 
 ---
 
@@ -474,6 +567,21 @@ Builds a `LiteLLMModel` from `PUTER_MODEL`, `PUTER_AUTH_TOKEN`, `PUTER_API_BASE`
 
 `INTAKE · PLANNING · EXECUTION · QA · DELIVERED · CANCELLED`
 
+#### `User` (BaseModel)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `github_id` | `str` | required | GitHub user ID — used as the store key |
+| `login` | `str` | required | GitHub username |
+| `name` | `Optional[str]` | `None` | Display name |
+| `email` | `Optional[str]` | `None` | Primary GitHub email |
+| `avatar_url` | `str` | `""` | GitHub avatar URL |
+| `access_token` | `str` | `""` | OAuth access token (repo scope) |
+| `tier` | `str` | `"free"` | Subscription tier |
+| `credits` | `float` | `0.0` | Current credit balance |
+| `created_at` | `datetime` | `utcnow()` | |
+| `updated_at` | `datetime` | `utcnow()` | |
+
 #### `Task` (BaseModel)
 
 | Field | Type | Default | Description |
@@ -516,6 +624,8 @@ Builds a `LiteLLMModel` from `PUTER_MODEL`, `PUTER_AUTH_TOKEN`, `PUTER_API_BASE`
 | `description` | `str` | required | |
 | `client_id` | `str` | required | Client email address |
 | `owner_id` | `str` | `"default"` | Tenant namespace |
+| `github_user_id` | `Optional[str]` | `None` | GitHub user ID of the authenticated owner |
+| `github_repo_url` | `Optional[str]` | `None` | HTML URL of the pushed GitHub repository |
 | `status` | `ProjectStatus` | `INTAKE` | |
 | `tasks` | `list[Task]` | `[]` | |
 | `budget_tokens` | `int` | `100_000` | CEO-allocated token budget |
@@ -549,6 +659,7 @@ Builds a `LiteLLMModel` from `PUTER_MODEL`, `PUTER_AUTH_TOKEN`, `PUTER_API_BASE`
 | `client_name` | `str` | required |
 | `client_email` | `str` | required |
 | `owner_id` | `str` | `"default"` |
+| `github_user_id` | `Optional[str]` | `None` |
 | `messages` | `list[ConsultMessage]` | `[]` |
 | `project_id` | `Optional[str]` | `None` |
 | `status` | `str` | `"active"` |
@@ -866,10 +977,22 @@ Reads SSE `text/event-stream` response chunk by chunk using `ReadableStream`. Ca
 | `proposalGet` | `(id)` | `Proposal` |
 | `demoGet` | `(id)` | `{ demo_url: string }` |
 | `usageGet` | `(id)` | `UsageReport` |
+| `myProjects` | `()` | `ProjectSummary[]` |
+| `pushToGitHub` | `(projectId)` | `{ repo_url: string }` |
+
+#### Auth functions — `lib/auth.ts`
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `getMe` | `()` | `Promise<GitHubUser \| null>` |
+| `loginWithGitHub` | `()` | `void` — redirects to `/api/auth/github` |
+| `logout` | `()` | `Promise<void>` — POSTs to `/api/auth/logout`, redirects to `/` |
+
+`GitHubUser`: `{ github_id, login, name: string|null, email: string|null, avatar_url, tier, credits }`
 
 #### TypeScript interfaces
 
-`ConsultMessage · ConsultSession · ConsultStartResponse · ConsultMessageResponse · Proposal · TaskItem · Project · UsageReport`
+`ConsultMessage · ConsultSession · ConsultStartResponse · ConsultMessageResponse · Proposal · TaskItem · Project · ProjectSummary · UsageReport`
 
 `UsageReport`: `{ project_id, tokens_used, llm_requests, llm_cost_usd, budget_tokens, budget_remaining, task_breakdown: Array<{ task_id, title, tokens_used, cost_usd }> }`
 

@@ -74,7 +74,19 @@ def _base_url() -> str:
 
 
 def notify_proposal_ready(project: Project, session: ConsultSession) -> None:
-    """Email the client that their proposal is ready for review."""
+    """Email the client that their proposal is ready for review.
+
+    Sends an HTML email containing the project name, total price, deposit
+    amount, estimated delivery days, and a link to the proposal page.  The
+    email is silently skipped if SMTP is not configured.
+
+    Args:
+        project (Project): The project whose proposal has been generated.
+            Must have ``total_price_usd`` set; ``proposal`` is used for
+            deposit and ETA details if present.
+        session (ConsultSession): The consultation session supplying the
+            client's name and email address.
+    """
     url = f"{_base_url()}/proposal/{project.id}"
     price = f"${project.total_price_usd:,.2f}"
     deposit = f"${project.proposal.deposit_amount_usd:,.2f}" if project.proposal else ""
@@ -112,7 +124,19 @@ def notify_proposal_ready(project: Project, session: ConsultSession) -> None:
 
 
 def notify_demo_ready(project: Project, client_email: str, client_name: str) -> None:
-    """Email the client that their live demo is ready to view."""
+    """Email the client that their live demo is ready to view.
+
+    Sends an HTML email with a link to the demo review page.  The client is
+    reminded that the remaining balance is due after approving the demo.
+    The email is silently skipped if SMTP is not configured.
+
+    Args:
+        project (Project): The project that has been deployed to a demo
+            environment.
+        client_email (str): Recipient email address.
+        client_name (str): Recipient's first or full name used in the
+            greeting.
+    """
     url = f"{_base_url()}/demo/{project.id}"
     subject = f"Your demo is live — {project.name}"
 
@@ -138,7 +162,17 @@ def notify_demo_ready(project: Project, client_email: str, client_name: str) -> 
 
 
 def notify_delivery_complete(project: Project, client_email: str, client_name: str) -> None:
-    """Email the client confirming full delivery after final payment."""
+    """Email the client confirming full delivery after final payment.
+
+    Sends an HTML confirmation email with a link to the project status page.
+    The email is silently skipped if SMTP is not configured.
+
+    Args:
+        project (Project): The fully delivered project.
+        client_email (str): Recipient email address.
+        client_name (str): Recipient's first or full name used in the
+            greeting.
+    """
     url = f"{_base_url()}/status/{project.id}"
     subject = f"Delivery confirmed — {project.name}"
 

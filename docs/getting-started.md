@@ -14,6 +14,7 @@
 You also need:
 - A free [Puter.com](https://puter.com) account for the LLM token (or any OpenAI-compatible API)
 - A [Stripe](https://stripe.com) account (test mode keys work)
+- A [GitHub OAuth App](https://github.com/settings/developers) *(optional — enables the GitHub login button and automatic repo delivery)*
 
 ---
 
@@ -61,6 +62,11 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 # Frontend → backend URL
 NEXT_PUBLIC_API_URL=http://localhost:9999
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+
+# GitHub OAuth (optional — for login + GitHub delivery)
+GITHUB_CLIENT_ID=your-oauth-app-client-id
+GITHUB_CLIENT_SECRET=your-oauth-app-client-secret
+SESSION_SECRET=change-me-to-a-strong-random-string
 ```
 
 **Getting a Puter token:**
@@ -73,6 +79,20 @@ See [docs.puter.com/playground/ai-list-model-providers](https://docs.puter.com/p
 
 **Using a different LLM provider:**  
 Set `PUTER_MODEL`, `PUTER_AUTH_TOKEN`, and `PUTER_API_BASE` to match your provider (any OpenAI-compatible endpoint works). To use Anthropic directly, edit `src/agent_puter/swarm/base_agent.py:make_model()`.
+
+---
+
+### GitHub OAuth
+
+**Setting up GitHub OAuth:**
+1. Go to [github.com/settings/developers](https://github.com/settings/developers) → **New OAuth App**
+2. Set **Homepage URL** to `http://localhost:3000`
+3. Set **Authorization callback URL** to `http://localhost:3000/api/auth/callback`
+4. Copy the **Client ID** → `GITHUB_CLIENT_ID`
+5. Generate a **Client secret** → `GITHUB_CLIENT_SECRET`
+6. Set `SESSION_SECRET` to any strong random string (e.g. `openssl rand -hex 32`)
+
+Leave all three vars unset to run without GitHub login — the "Sign in with GitHub" button will simply be hidden.
 
 ---
 
@@ -170,17 +190,6 @@ The backend starts at `http://localhost:9999`. Interactive agent docs are at:
 
 ### Frontend
 
-**Option A — standalone frontend repo:**
-
-```bash
-git clone https://github.com/vizionik25/agent-puter-frontend.git
-cd agent-puter-frontend
-npm install
-npm run dev
-```
-
-**Option B — from the monorepo:**
-
 ```bash
 cd frontend
 npm install
@@ -253,14 +262,15 @@ docker compose down -v              # stop and remove volumes
 Once both services are running:
 
 1. Open `http://localhost:3000` — landing page should load.
-2. Click **Start Consultation** and fill in your name, email, and a project description.
-3. Chat with the Sales Agent until it acknowledges your requirements. The chat auto-completes and redirects to `/proposal/{id}`.
-4. The proposal page shows the execution credit cost. If your credit balance is sufficient, click **Execute Project** to deduct credits and start the agent swarm.
-5. You are redirected to `/status/{id}` which polls every 8 seconds and shows task-by-task progress.
-6. When all tasks are `done` and the project reaches `delivered`, a **View Demo** link appears.
-7. Check `http://localhost:9999/health` for a JSON listing of all agents and feature flags.
-8. Open `http://localhost:3000/billing` to manage your subscription plan and credit balance.
-9. Open `http://localhost:3000/admin` (if `ADMIN_API_KEY` is set) to see the admin dashboard.
+2. *(Optional)* Click **Sign in with GitHub** in the top-right nav to authenticate. Once logged in, the nav shows your username and a link to your dashboard at `/dashboard`.
+3. Click **Start Consultation** and fill in your name, email, and a project description.
+4. Chat with the Sales Agent until it acknowledges your requirements. The chat auto-completes and redirects to `/proposal/{id}`.
+5. The proposal page shows the execution credit cost. If your credit balance is sufficient, click **Execute Project** to deduct credits and start the agent swarm.
+6. You are redirected to `/status/{id}` which polls every 8 seconds and shows task-by-task progress.
+7. When all tasks are `done` and the project reaches `delivered`, a **View Demo** link appears.
+8. Check `http://localhost:9999/health` for a JSON listing of all agents and feature flags.
+9. Open `http://localhost:3000/dashboard` to view all your projects, push delivered projects to GitHub, and manage your account.
+10. Open `http://localhost:3000/admin` (if `ADMIN_API_KEY` is set) to see the admin dashboard.
 
 ---
 
@@ -301,6 +311,8 @@ cd frontend && npm run lint
 ```
 
 There is no backend test suite in the current codebase. Functional testing goes through the full UI flow or directly against the REST endpoints.
+
+**Testing GitHub OAuth locally:** The OAuth callback is routed through the Next.js frontend (`localhost:3000/api/auth/callback`), which proxies to the backend. Both services must be running simultaneously for the login flow to work. Hitting the backend's `/api/auth/github` directly (port 9999) will redirect to a callback URL that isn't served by the backend alone.
 
 ---
 

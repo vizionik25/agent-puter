@@ -14,6 +14,12 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { demoGet } from "@/lib/api";
 
+/**
+ * Live demo viewer page that fetches the project's demo URL and renders it either as a
+ * sandboxed iframe (for HTTP URLs) or as a plain-text notes block.
+ *
+ * @returns {JSX.Element} The demo toolbar and iframe or text block, or an error/loading state.
+ */
 export default function DemoPage() {
   const { id } = useParams<{ id: string }>();
   const [demoUrl, setDemoUrl] = useState<string | null>(null);

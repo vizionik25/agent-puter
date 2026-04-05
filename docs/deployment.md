@@ -18,7 +18,8 @@ Runs both the Python backend (port 9999) and the Next.js frontend (port 3000) on
 
 ```bash
 cp .env.example .env
-# Fill in PUTER_AUTH_TOKEN, PUTER_MODEL, PUTER_API_BASE, and STRIPE_* keys
+# Fill in PUTER_AUTH_TOKEN, PUTER_MODEL, PUTER_API_BASE, STRIPE_* keys,
+# and (optional) GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, SESSION_SECRET
 docker compose up --build -d
 ```
 
@@ -156,6 +157,14 @@ All fields are optional. Notifications are silently skipped when unset.
 | `FROM_EMAIL` | `SMTP_USER` | Sender address. |
 | `FRONTEND_URL` | `http://localhost:3000` | Base URL embedded in email action links. |
 
+### GitHub OAuth
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GITHUB_CLIENT_ID` | — | Client ID from your GitHub OAuth App. Required for GitHub login. |
+| `GITHUB_CLIENT_SECRET` | — | Client secret from your GitHub OAuth App. Required for GitHub login. |
+| `SESSION_SECRET` | random | HMAC-SHA256 key for signing session tokens. Set to a strong random value in production (`openssl rand -hex 32`). |
+
 ### MCP
 
 | Variable | Description |
@@ -235,10 +244,13 @@ Middleware(
         "http://localhost:9999",
         "https://yourdomain.com",      # add your production frontend URL
     ],
+    allow_credentials=True,            # required for httpOnly session cookie
     allow_methods=["*"],
     allow_headers=["*"],
 )
 ```
+
+> **Note:** `allow_credentials=True` is required for the `ap_session` httpOnly cookie to be sent with cross-origin requests. When set, `allow_origins` must list explicit origins — wildcards (`"*"`) are not permitted by browsers when credentials are included.
 
 ---
 
@@ -319,3 +331,6 @@ The Docker health-check hits `/.well-known/agent-card.json` (the CEO agent card)
 - [ ] Reverse proxy configured with TLS
 - [ ] Docker containers running as non-root (both images already do this)
 - [ ] `FRONTEND_URL` set to production URL (for email action links)
+- [ ] GitHub OAuth App callback URL updated to `https://yourdomain.com/api/auth/callback`
+- [ ] `SESSION_SECRET` set to a strong random value (`openssl rand -hex 32`)
+- [ ] CORS `allow_credentials=True` and `allow_origins` includes production domain (required for session cookie)

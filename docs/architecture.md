@@ -16,8 +16,9 @@ Browser
 │                                                                  │
 │  Pages                        Client-side libraries              │
 │  /                 landing    lib/api.ts      REST client        │
-│  /consult          chat SSE   lib/billing.ts  localStorage mock  │
-│  /proposal/[id]    CTA        components/CreditBadge.tsx         │
+│  /consult          chat SSE   lib/auth.ts     GitHub OAuth       │
+│  /dashboard        projects   lib/billing.ts  localStorage mock  │
+│  /proposal/[id]    CTA        components/UserMenu.tsx            │
 │  /billing          plans      components/MockStripeModal.tsx     │
 │  /demo/[id]        iframe                                        │
 │  /status/[id]      polling                                       │
@@ -80,8 +81,10 @@ Browser
 │  └── CORSMiddleware (localhost:3000, localhost:9999)        │
 │                                                              │
 │  REST API (api/)                                             │
+│  ├── /api/auth/*           auth.py (GitHub OAuth)           │
 │  ├── /api/consult/*        consultation.py                  │
 │  ├── /api/consult/{id}/stream  SSE streaming                │
+│  ├── /api/projects         projects.py (list)               │
 │  ├── /api/projects/*       projects.py                      │
 │  ├── /api/payments/*       payments.py  ──► Stripe          │
 │  └── /api/admin/*          admin.py (X-Admin-Key)          │
@@ -158,7 +161,7 @@ The response is either a `Task` (with `status.message.parts`) or a `Message` (wi
 
 ## Persistence Layer
 
-All session and project data flows through `api/store.py`'s `AbstractStore` interface. The active backend is selected at import time via `STORAGE_BACKEND`:
+All session, project, and user data flows through `api/store.py`'s `AbstractStore` interface. The active backend is selected at import time via `STORAGE_BACKEND`:
 
 ```
 STORAGE_BACKEND=memory    → MemoryStore    (default — resets on restart)
@@ -174,6 +177,8 @@ from . import _store
 session = await _store.store.get_session(session_id)
 await _store.store.set_project(project)
 projects = await _store.store.list_projects(owner_id="acme")
+user = await _store.store.get_user(github_id)
+await _store.store.set_user(user)
 ```
 
 `JsonFileStore` writes atomically via a `.tmp` rename. `PuterKVStore` namespaces keys as `session:{id}` and `project:{id}` and calls `GET/POST /kv/get|set|list` on `PUTER_KV_BASE`.
@@ -189,6 +194,34 @@ projects = await _store.store.list_projects(owner_id="acme")
 3. Returns `"default"` if no recognised key is found
 
 Keys are mapped to tenants via `AGENCY_API_KEYS=key1:tenant1,key2:tenant2`. The `owner_id` is stored on every `ConsultSession` and `Project`. Store list methods accept an `owner_id` filter so each tenant sees only their own data.
+
+---
+
+## GitHub OAuth
+
+`api/auth.py` implements the GitHub OAuth 2.0 authorization code flow using only Python stdlib — no JWT library required.
+
+**Flow:**
+
+```
+Browser
+  │
+  ├─► GET /api/auth/github        → redirect to github.com/login/oauth/authorize
+  │                                  (state CSRF token set as httpOnly cookie)
+  │
+  ├─► GET /api/auth/callback      → exchange code for access token
+  │   (via Next.js proxy)            fetch GitHub user profile
+  │                                  upsert User in store
+  │                                  set ap_session cookie (HMAC-signed, 30-day TTL)
+  │                                  redirect to /dashboard
+  │
+  ├─► GET /api/auth/me            → verify ap_session cookie → return GitHubUser JSON
+  └─► POST /api/auth/logout       → clear ap_session cookie
+```
+
+**Session tokens** are HMAC-SHA256 signed using `SESSION_SECRET`. The token payload is `{github_id, exp}` encoded as base64 JSON — no external JWT dependency. `verify_session_token()` checks the signature and expiry; `get_current_user()` resolves the token to a `User` from the store.
+
+**Cookie routing:** The OAuth callback URL is `{FRONTEND_URL}/api/auth/callback` (default `http://localhost:3000/api/auth/callback`). The Next.js catch-all proxy at `frontend/app/api/[...path]/route.ts` forwards this to the backend. Because the 302 response with `Set-Cookie` flows back through the proxy, the `ap_session` cookie is set on the frontend's origin (`localhost:3000`) — ensuring all subsequent `/api/*` fetches include it automatically.
 
 ---
 
@@ -212,6 +245,7 @@ Client request text
            │
     ├─[A2A]─► CEO Agent        → approve_delivery
     └──────► _auto_deploy()    → generate HTML, deploy to /deliveries/{id}/
+                                  → _push_to_github() if github_user_id set
 ```
 
 Each A2A call is tracked: `project.llm_requests += 1`, `project.tokens_used += ~2000`, `project.llm_cost_usd += estimated_cost`. Per-task cost rolls up into `task.cost_usd`.
@@ -256,8 +290,30 @@ After all tasks pass QA, `Agency._auto_deploy()`:
 3. Tries to dispatch a `deploy_to_sandbox` call via the Engineer agent (A2A)
 4. Falls back to writing `deliveries/{project_id}/index.html` directly if the A2A call doesn't parse correctly
 5. Sets `project.demo_url` and `project.deployment_status = "deployed"`
+6. If `project.github_user_id` is set, calls `_push_to_github()` — creates a public GitHub repo named `ap-{slug}-{short_id}` under the user's account via the GitHub Contents API and sets `project.github_repo_url`
 
 The Engineer agent's `deploy_to_sandbox(project_id, content, filename)` tool writes to `deliveries/{project_id}/{filename}`. Starlette serves this directory as `StaticFiles` at `/deliveries/`.
+
+---
+
+## GitHub Delivery
+
+`api/github_delivery.py` pushes project deliverables to a new GitHub repository in the authenticated user's account. No `git` binary is required — all operations use the GitHub REST API.
+
+**Trigger:** `POST /api/projects/{id}/push-github` (authenticated). Also called automatically from `Agency._auto_deploy()` when `project.github_user_id` is set.
+
+**Steps:**
+
+1. Slugify `project.name` → `ap-{slug}-{project.id[:8]}` (repo name, max ~65 chars)
+2. `POST /user/repos` — create a public repo with `auto_init: true` (creates default branch)
+3. For each file in `deliveries/{project_id}/`:
+   - `GET /repos/{owner}/{repo}/contents/{path}` — check if file exists and get its SHA
+   - `PUT /repos/{owner}/{repo}/contents/{path}` — create or update with base64-encoded content
+4. Store the repo HTML URL in `project.github_repo_url`
+
+**OAuth scope required:** `repo` (requested during the GitHub login flow).
+
+If a repo with the same name already exists (HTTP 422), the upload proceeds against the existing repo.
 
 ---
 
@@ -300,15 +356,28 @@ The Next.js `/admin` page authenticates with the admin key client-side, lists al
 ## Data Model Relationships
 
 ```
+User
+  ├── github_id: str          (GitHub user ID — store key)
+  ├── login: str              (GitHub username)
+  ├── name: str | null
+  ├── email: str | null
+  ├── avatar_url: str
+  ├── access_token: str       (OAuth token — used for GitHub delivery)
+  ├── tier: str               (subscription tier)
+  └── credits: float
+
 ConsultSession
   ├── id: UUID
   ├── owner_id: str           (tenant namespace)
+  ├── github_user_id: str | null  (links session → User)
   ├── messages: ConsultMessage[]
   └── project_id → Project.id
 
 Project
   ├── id: UUID
   ├── owner_id: str           (tenant namespace)
+  ├── github_user_id: str | null  (links project → User)
+  ├── github_repo_url: str | null (set after push-github)
   ├── status: ProjectStatus
   ├── tasks: Task[]
   ├── proposal: Proposal | null

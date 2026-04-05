@@ -1,16 +1,16 @@
-/**
- * Catch-all API proxy route.
- *
- * Forwards every /api/* request from the browser to the Python backend,
- * streaming the response back as-is. This replaces the next.config.ts
- * rewrite, which is unreliable for POST requests in Next.js 16.
- */
-
 const BACKEND =
   process.env.API_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
   "http://localhost:9999";
 
+/**
+ * Catch-all backend proxy that forwards every `/api/[...path]` request to the Python backend,
+ * streaming the upstream response (status, headers, and body) back to the browser unchanged.
+ *
+ * @param req - The incoming Next.js request.
+ * @param params - Route params containing the path segments after `/api/`.
+ * @returns {Promise<Response>} The proxied response from the backend.
+ */
 async function proxy(req: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params;
   const url = new URL(req.url);
@@ -36,6 +36,7 @@ async function proxy(req: Request, { params }: { params: Promise<{ path: string[
   });
 }
 
+// Export the proxy handler for every HTTP method the app uses.
 export const GET = proxy;
 export const POST = proxy;
 export const PUT = proxy;

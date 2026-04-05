@@ -1,12 +1,19 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import CreditBadge from "@/components/CreditBadge";
+import UserMenu from "@/components/UserMenu";
 
 export const metadata: Metadata = {
   title: "AI Consulting Agency",
   description: "Autonomous AI consulting — from brief to delivery in days, not months.",
 };
 
+/**
+ * Root application layout that wraps every page with the Inter font, a top nav bar
+ * (logo, Consult link, Pricing link, and UserMenu), and a main content area.
+ *
+ * @param {React.ReactNode} children - Page content rendered inside the main element.
+ * @returns {JSX.Element} The full HTML document shell with persistent navigation.
+ */
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -23,13 +30,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="container nav-inner">
             <a href="/" className="nav-logo">⚡ SwarmAI</a>
             <div style={{ display: "flex", gap: ".75rem", alignItems: "center" }}>
-              <CreditBadge />
-              <a href="/billing" style={{ fontSize: ".85rem", color: "var(--muted)", textDecoration: "none" }}>
-                Billing
+              <a href="/consult" style={{ fontSize: ".85rem", color: "var(--muted)", textDecoration: "none" }}>
+                Consult
               </a>
-              <a href="/consult" className="btn btn-outline" style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}>
-                Start Consultation
+              <a href="/#pricing" style={{ fontSize: ".85rem", color: "var(--muted)", textDecoration: "none" }}>
+                Pricing
               </a>
+              <UserMenu />
             </div>
           </div>
         </nav>

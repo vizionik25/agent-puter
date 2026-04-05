@@ -12,6 +12,18 @@ interface Props {
 
 type State = "idle" | "processing" | "success";
 
+/**
+ * Mock Stripe payment modal that simulates a checkout flow with a pre-filled test card,
+ * calling onSuccess after a short processing delay or onCancel when dismissed.
+ *
+ * @param {Props} props - Modal configuration.
+ * @param props.title - Heading shown in the order summary (e.g. plan name).
+ * @param props.amount - Dollar amount to display and format as currency.
+ * @param props.description - Short description of what is being purchased.
+ * @param props.onSuccess - Callback invoked after the simulated payment succeeds.
+ * @param props.onCancel - Callback invoked when the user cancels or clicks the backdrop.
+ * @returns {JSX.Element} A full-screen overlay containing the mock checkout card.
+ */
 export default function MockStripeModal({ title, amount, description, onSuccess, onCancel }: Props) {
   const [state, setState] = useState<State>("idle");
 

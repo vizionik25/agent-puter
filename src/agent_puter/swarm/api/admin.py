@@ -31,7 +31,18 @@ _LOG_BUFFER: deque[dict] = deque(maxlen=500)
 
 
 def log_event(level: str, source: str, message: str, project_id: str = "") -> None:
-    """Append an entry to the admin log ring buffer."""
+    """Append an entry to the admin log ring buffer.
+
+    Args:
+        level (str): Severity level, e.g. ``"info"``, ``"warn"``, ``"error"``.
+        source (str): Component that generated the event, e.g. ``"payments"``.
+        message (str): Human-readable description of the event.
+        project_id (str): Optional project identifier to associate with the
+            entry. Defaults to ``""``.
+
+    Returns:
+        None
+    """
     _LOG_BUFFER.appendleft({
         "timestamp": datetime.utcnow().isoformat(),
         "level": level,
@@ -67,7 +78,18 @@ def _auth_error(configured: bool) -> JSONResponse:
 
 
 async def list_projects(request: Request) -> JSONResponse:
-    """List all projects, optionally filtered by owner_id query param."""
+    """List all projects, optionally filtered by owner_id query param.
+
+    Args:
+        request (Request): Requires ``X-Admin-Key`` header. Accepts optional
+            ``owner_id`` query parameter (str) to filter results.
+
+    Returns:
+        JSONResponse: 200 ``{"projects": [...], "total": int}`` where each
+        project entry includes id, name, client, status, payment flags, LLM
+        cost metrics, and timestamps; 401 if the admin key is invalid; 503 if
+        ``ADMIN_API_KEY`` is not configured.
+    """
     if not os.getenv("ADMIN_API_KEY") or not _check_auth(request):
         return _auth_error(bool(os.getenv("ADMIN_API_KEY")))
 
@@ -102,7 +124,18 @@ async def list_projects(request: Request) -> JSONResponse:
 
 
 async def list_sessions(request: Request) -> JSONResponse:
-    """List all consultation sessions, optionally filtered by owner_id."""
+    """List all consultation sessions, optionally filtered by owner_id.
+
+    Args:
+        request (Request): Requires ``X-Admin-Key`` header. Accepts optional
+            ``owner_id`` query parameter (str) to filter results.
+
+    Returns:
+        JSONResponse: 200 ``{"sessions": [...], "total": int}`` where each
+        entry includes session id, client details, status, linked project id,
+        message count, and timestamps; 401 if the admin key is invalid; 503 if
+        ``ADMIN_API_KEY`` is not configured.
+    """
     if not os.getenv("ADMIN_API_KEY") or not _check_auth(request):
         return _auth_error(bool(os.getenv("ADMIN_API_KEY")))
 
@@ -129,7 +162,18 @@ async def list_sessions(request: Request) -> JSONResponse:
 
 
 async def get_project_detail(request: Request) -> JSONResponse:
-    """Full project detail including task outputs and cost breakdown."""
+    """Return full project detail including task outputs and cost breakdown.
+
+    Args:
+        request (Request): Requires ``X-Admin-Key`` header. Path param
+            ``project_id`` (str).
+
+    Returns:
+        JSONResponse: 200 object containing all project fields plus a full
+        ``tasks`` list (with per-task output, QA feedback, and cost) and the
+        serialized ``proposal``; 401 if the admin key is invalid; 404 if the
+        project does not exist; 503 if ``ADMIN_API_KEY`` is not configured.
+    """
     if not os.getenv("ADMIN_API_KEY") or not _check_auth(request):
         return _auth_error(bool(os.getenv("ADMIN_API_KEY")))
 
@@ -177,7 +221,18 @@ async def get_project_detail(request: Request) -> JSONResponse:
 
 
 async def admin_set_demo_url(request: Request) -> JSONResponse:
-    """Admin: set the live demo URL for a project."""
+    """Admin: set the live demo URL for a project.
+
+    Args:
+        request (Request): Requires ``X-Admin-Key`` header. Path param
+            ``project_id`` (str); POST body must contain ``demo_url`` (str).
+
+    Returns:
+        JSONResponse: 200 ``{"project_id", "demo_url"}`` on success; 400 for
+        invalid JSON; 401 if the admin key is invalid; 404 if the project does
+        not exist; 422 if ``demo_url`` is missing or empty; 503 if
+        ``ADMIN_API_KEY`` is not configured.
+    """
     if not os.getenv("ADMIN_API_KEY") or not _check_auth(request):
         return _auth_error(bool(os.getenv("ADMIN_API_KEY")))
 
@@ -204,7 +259,20 @@ async def admin_set_demo_url(request: Request) -> JSONResponse:
 
 
 async def admin_set_status(request: Request) -> JSONResponse:
-    """Admin: manually override a project's status."""
+    """Admin: manually override a project's status.
+
+    Args:
+        request (Request): Requires ``X-Admin-Key`` header. Path param
+            ``project_id`` (str); POST body must contain ``status`` (str), one
+            of ``intake``, ``planning``, ``execution``, ``qa``, ``delivered``,
+            or ``cancelled``.
+
+    Returns:
+        JSONResponse: 200 ``{"project_id", "status"}`` on success; 400 for
+        invalid JSON; 401 if the admin key is invalid; 404 if the project does
+        not exist; 422 if the status value is not in the allowed set; 503 if
+        ``ADMIN_API_KEY`` is not configured.
+    """
     if not os.getenv("ADMIN_API_KEY") or not _check_auth(request):
         return _auth_error(bool(os.getenv("ADMIN_API_KEY")))
 
@@ -232,7 +300,18 @@ async def admin_set_status(request: Request) -> JSONResponse:
 
 
 async def get_logs(request: Request) -> JSONResponse:
-    """Return recent server log entries (last 200, newest first)."""
+    """Return recent server log entries from the in-process ring buffer.
+
+    Args:
+        request (Request): Requires ``X-Admin-Key`` header. Accepts optional
+            ``limit`` query parameter (int, default 100, max 500).
+
+    Returns:
+        JSONResponse: 200 ``{"logs": [...], "total": int}`` where each log
+        entry contains ``timestamp``, ``level``, ``source``, ``message``, and
+        ``project_id``, ordered newest-first; 401 if the admin key is invalid;
+        503 if ``ADMIN_API_KEY`` is not configured.
+    """
     if not os.getenv("ADMIN_API_KEY") or not _check_auth(request):
         return _auth_error(bool(os.getenv("ADMIN_API_KEY")))
 

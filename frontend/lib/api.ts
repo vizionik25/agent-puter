@@ -171,6 +171,7 @@ export const consultComplete = (id: string) =>
  * Fetch the full consultation transcript and session metadata.
  *
  * @param id - Session ID.
+ * @returns {Promise<ConsultSession>} The full session object including all messages.
  */
 export const consultGet = (id: string) =>
   req<ConsultSession>(`/api/consult/${id}`);
@@ -259,6 +260,42 @@ export async function consultStream(
   }
 }
 
+/** Summary of a project as returned by GET /api/projects (dashboard list). */
+export interface ProjectSummary {
+  project_id: string;
+  name: string;
+  status: string;
+  deposit_paid: boolean;
+  final_paid: boolean;
+  total_price_usd: number;
+  demo_available: boolean;
+  github_repo_url: string | null;
+  progress: { done: number; total: number };
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * List all projects belonging to the currently authenticated user.
+ * Returns 401 if not logged in.
+ *
+ * @returns {Promise<ProjectSummary[]>} Array of project summaries for the authenticated user.
+ */
+export const myProjects = () =>
+  req<ProjectSummary[]>("/api/projects", { credentials: "include" } as RequestInit);
+
+/**
+ * Push a delivered project to the authenticated user's GitHub account.
+ *
+ * @param projectId - ID of the project to push.
+ * @returns {Promise<{ repo_url: string }>} The URL of the newly created GitHub repository.
+ */
+export const pushToGitHub = (projectId: string) =>
+  req<{ repo_url: string }>(`/api/projects/${projectId}/push-github`, {
+    method: "POST",
+    credentials: "include",
+  } as RequestInit);
+
 // ── Usage ─────────────────────────────────────────────────────────────────────
 
 /** LLM token + cost breakdown returned by GET /api/projects/{id}/usage. */
@@ -281,6 +318,7 @@ export interface UsageReport {
  * Fetch LLM token usage and cost breakdown for a project.
  *
  * @param id - Project ID.
+ * @returns {Promise<UsageReport>} Token counts, LLM cost, budget remaining, and per-task breakdown.
  */
 export const usageGet = (id: string) =>
   req<UsageReport>(`/api/projects/${id}/usage`);

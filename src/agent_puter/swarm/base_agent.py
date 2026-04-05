@@ -10,15 +10,25 @@ from pydantic_ai_litellm import LiteLLMModel
 
 
 def make_model() -> LiteLLMModel:
-    """
-    Build a LiteLLMModel from environment variables.
+    """Build a LiteLLMModel from environment variables.
 
-    Required env vars (same as agent.py):
-        PUTER_MODEL       — e.g. "claude-sonnet-4-5"
-        PUTER_AUTH_TOKEN  — Puter session token
-        PUTER_API_BASE    — e.g. "https://api.puter.com/drivers/call"
+    Reads all configuration from the environment so that no credentials are
+    hard-coded. The three variables below must all be set before calling this
+    function.
 
-    Returns a configured LiteLLMModel ready to pass to pydantic_ai.Agent.
+    Environment:
+        PUTER_MODEL: LiteLLM model identifier, e.g. ``"claude-sonnet-4-5"``.
+        PUTER_AUTH_TOKEN: Puter session token used as the API key.
+        PUTER_API_BASE: Base URL for the OpenAI-compatible endpoint, e.g.
+            ``"https://api.puter.com/drivers/call"``.
+
+    Returns:
+        LiteLLMModel: A configured model instance ready to pass to
+            ``pydantic_ai.Agent``.
+
+    Raises:
+        EnvironmentError: When any of the three required environment variables
+            is unset or empty.
     """
     model_name = os.getenv("PUTER_MODEL")
     api_key = os.getenv("PUTER_AUTH_TOKEN")

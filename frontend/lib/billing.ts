@@ -9,8 +9,10 @@
  *   import { getState, deductCredit, TIERS, CREDIT_PACKS } from "@/lib/billing";
  */
 
+/** Union of all valid subscription tier identifiers, ordered from lowest to highest plan. */
 export type TierId = "free" | "starter" | "pro" | "business";
 
+/** Shape of a single subscription tier, including its pricing and feature list. */
 export interface Tier {
   id: TierId;
   name: string;
@@ -19,6 +21,7 @@ export interface Tier {
   features: string[];
 }
 
+/** @description All available subscription tiers keyed by their TierId. */
 export const TIERS: Record<TierId, Tier> = {
   free: {
     id: "free",
@@ -50,8 +53,10 @@ export const TIERS: Record<TierId, Tier> = {
   },
 };
 
+/** @description Ordered array of tier IDs from lowest (free) to highest (business) plan. */
 export const TIER_ORDER: TierId[] = ["free", "starter", "pro", "business"];
 
+/** Shape of a one-time credit pack that can be purchased on top of a subscription. */
 export interface CreditPack {
   id: string;
   credits: number;
@@ -59,12 +64,14 @@ export interface CreditPack {
   label: string;
 }
 
+/** @description Available one-time credit pack options, ordered by credit quantity. */
 export const CREDIT_PACKS: CreditPack[] = [
   { id: "pack_10",  credits: 10,  price: 12, label: "10 credits" },
   { id: "pack_30",  credits: 30,  price: 32, label: "30 credits" },
   { id: "pack_100", credits: 100, price: 99, label: "100 credits" },
 ];
 
+/** Shape of a single entry in the credit ledger, recording every credit or debit event. */
 export interface CreditLedgerEntry {
   type: "monthly_grant" | "pack_purchase" | "project_execution" | "tier_upgrade";
   amount: number;       // positive = credit, negative = debit
@@ -73,6 +80,7 @@ export interface CreditLedgerEntry {
   timestamp: string;    // ISO 8601
 }
 
+/** Full billing state for a user, serialized to and from localStorage. */
 export interface BillingState {
   tierId: TierId;
   credits: number;
@@ -159,6 +167,9 @@ export function getTier(): Tier {
 /**
  * Upgrade (or downgrade) to a new tier.
  * If upgrading, immediately grants the credit delta.
+ *
+ * @param newTierId - The TierId to switch the user to.
+ * @returns {void}
  */
 export function changeTier(newTierId: TierId): void {
   const state = getState();
@@ -188,6 +199,10 @@ export function changeTier(newTierId: TierId): void {
 /**
  * Add credits from a pack purchase.
  * Throws if the user is on the Free tier — a paid subscription is required.
+ *
+ * @param packId - The `id` of the CreditPack to purchase (e.g. `"pack_10"`).
+ * @returns {void}
+ * @throws {Error} When packId is unknown or the user's current tier is "free".
  */
 export function purchasePack(packId: string): void {
   const pack = CREDIT_PACKS.find((p) => p.id === packId);
@@ -196,7 +211,6 @@ export function purchasePack(packId: string): void {
   const state = getState();
   if (state.tierId === "free") throw new Error("A paid subscription is required to purchase credit packs.");
 
-  const state = getState();
   const now = new Date().toISOString();
   setState({
     ...state,
@@ -215,7 +229,10 @@ export function purchasePack(packId: string): void {
 
 /**
  * Returns true if the user can execute this project.
+ *
+ * @param projectId - Unique project identifier used for idempotency checking.
  * @param cost - Credit cost from estimateProjectCost().totalCredits
+ * @returns {boolean} `true` when the user has sufficient credits and the project has not already been charged.
  */
 export function canExecuteProject(projectId: string, cost: number): boolean {
   const state = getState();
@@ -227,7 +244,10 @@ export function canExecuteProject(projectId: string, cost: number): boolean {
  * Idempotent: calling again for the same projectId is a no-op.
  * Throws if insufficient credits.
  *
+ * @param projectId - Unique project identifier used to enforce idempotency.
  * @param cost - Credit cost from estimateProjectCost().totalCredits
+ * @returns {void}
+ * @throws {Error} When the user has fewer credits than `cost`.
  */
 export function deductCredit(projectId: string, cost: number): void {
   const state = getState();
@@ -292,6 +312,9 @@ export interface CostEstimate {
  * Estimate execution cost from the proposal's `estimated_hours`.
  * Uses the same CPM structure as LLM providers — cost scales with token volume,
  * not a flat fee.
+ *
+ * @param estimatedHours - Number of agent-hours from the proposal (Proposal.estimated_hours).
+ * @returns {CostEstimate} Breakdown of input/output tokens and the total credit charge.
  */
 export function estimateProjectCost(estimatedHours: number): CostEstimate {
   const totalTokens = Math.round(estimatedHours * PRICING.tokensPerHour);
@@ -305,7 +328,11 @@ export function estimateProjectCost(estimatedHours: number): CostEstimate {
   return { inputTokens, outputTokens, totalTokens, inputCredits, outputCredits, totalCredits };
 }
 
-/** Days remaining in the current billing cycle. */
+/**
+ * Days remaining in the current billing cycle.
+ *
+ * @returns {number} Whole days until the next monthly credit grant; 0 if renewal is overdue.
+ */
 export function daysUntilRenewal(): number {
   const state = getState();
   const cycleAge = Date.now() - new Date(state.cycleStart).getTime();

@@ -34,6 +34,12 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "bg-red-900 text-red-200",
 };
 
+/**
+ * Admin dashboard that authenticates via an API key and then displays aggregate revenue
+ * and cost stats alongside a filterable table of all projects with links to individual detail views.
+ *
+ * @returns {JSX.Element} A login form before authentication, or the full stats and projects table after.
+ */
 export default function AdminPage() {
   const [adminKey, setAdminKey] = useState("");
   const [authed, setAuthed] = useState(false);

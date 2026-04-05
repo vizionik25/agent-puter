@@ -83,11 +83,50 @@ class Proposal(BaseModel):
 
 
 class Project(BaseModel):
+    """A consulting project managed by the agency swarm.
+
+    Created during ``Agency.handle_client_request`` and persisted in the
+    configured store backend.  Tracks the full lifecycle from intake through
+    delivery, including task execution, LLM cost accounting, Stripe payment
+    state, and optional GitHub delivery.
+
+    Attributes:
+        id (str): Auto-generated UUID for the project.
+        name (str): Human-readable project name.
+        description (str): Original client request text.
+        client_id (str): Identifier for the requesting client.
+        owner_id (str): Tenant identifier for multi-tenancy (default
+            ``"default"``).
+        github_user_id (Optional[str]): GitHub user ID of the owner if
+            authenticated via OAuth.
+        status (ProjectStatus): Current lifecycle phase.
+        tasks (list[Task]): Ordered list of work units assigned to agents.
+        budget_tokens (int): Maximum token budget allocated by the CEO agent.
+        tokens_used (int): Running total of LLM tokens consumed.
+        llm_requests (int): Total LLM API calls made across all agents.
+        llm_cost_usd (float): Estimated total LLM cost in USD.
+        proposal (Optional[Proposal]): Formal proposal presented to the client.
+        total_price_usd (float): Agreed total project price.
+        deposit_paid (bool): Whether the 20% deposit has been received.
+        final_paid (bool): Whether the 80% final payment has been received.
+        demo_url (Optional[str]): URL of the live sandbox demo.
+        github_repo_url (Optional[str]): GitHub repository URL after delivery.
+        deployment_status (Optional[str]): One of ``"pending"``, ``"deployed"``,
+            or ``"failed"``.
+        stripe_deposit_intent_id (Optional[str]): Stripe PaymentIntent ID for
+            the deposit charge.
+        stripe_final_intent_id (Optional[str]): Stripe PaymentIntent ID for
+            the final charge.
+        created_at (datetime): UTC timestamp of project creation.
+        updated_at (datetime): UTC timestamp of the last update.
+    """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     description: str
     client_id: str
     owner_id: str = "default"                  # tenant identifier (multi-tenancy)
+    github_user_id: Optional[str] = None       # GitHub user ID of the owner
     status: ProjectStatus = ProjectStatus.INTAKE
     tasks: list[Task] = Field(default_factory=list)
     budget_tokens: int = 100_000
@@ -100,9 +139,29 @@ class Project(BaseModel):
     deposit_paid: bool = False
     final_paid: bool = False
     demo_url: Optional[str] = None
+    github_repo_url: Optional[str] = None      # GitHub repo URL after push-to-github
     deployment_status: Optional[str] = None    # "pending" | "deployed" | "failed"
     stripe_deposit_intent_id: Optional[str] = None
     stripe_final_intent_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# GitHub-authenticated user
+# ---------------------------------------------------------------------------
+
+
+class User(BaseModel):
+    """A user who authenticated via GitHub OAuth."""
+    github_id: str
+    login: str
+    name: Optional[str] = None
+    email: Optional[str] = None
+    avatar_url: str = ""
+    access_token: str = ""           # GitHub OAuth token (scopes: repo, user:email)
+    tier: str = "free"               # free | starter | pro | business
+    credits: float = 0.0
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -130,6 +189,7 @@ class ConsultSession(BaseModel):
     client_name: str
     client_email: str
     owner_id: str = "default"              # tenant identifier (multi-tenancy)
+    github_user_id: Optional[str] = None   # GitHub user ID if authenticated via OAuth
     messages: list[ConsultMessage] = Field(default_factory=list)
     project_id: Optional[str] = None       # set after handle_client_request completes
     status: str = "active"                 # "active" | "complete"

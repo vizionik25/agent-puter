@@ -24,7 +24,17 @@ stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 
 
 async def create_deposit(request: Request) -> JSONResponse:
-    """Create a Stripe PaymentIntent for the 20% deposit."""
+    """Create a Stripe PaymentIntent for the 20% deposit.
+
+    Args:
+        request (Request): POST body must contain ``project_id`` (str).
+
+    Returns:
+        JSONResponse: 200 ``{"client_secret", "amount_usd", "project_id"}`` on
+        success; 400 if deposit already paid or amount too small; 404 if project
+        or proposal not found; 422 for missing fields; 503 if Stripe is not
+        configured.
+    """
     if not stripe.api_key:
         return JSONResponse({"error": "Stripe not configured"}, status_code=503)
 
@@ -72,7 +82,16 @@ async def create_deposit(request: Request) -> JSONResponse:
 
 
 async def create_final(request: Request) -> JSONResponse:
-    """Create a Stripe PaymentIntent for the 80% final balance."""
+    """Create a Stripe PaymentIntent for the 80% final balance.
+
+    Args:
+        request (Request): POST body must contain ``project_id`` (str).
+
+    Returns:
+        JSONResponse: 200 ``{"client_secret", "amount_usd", "project_id"}`` on
+        success; 400 if final already paid or deposit not yet paid; 404 if
+        project or proposal not found; 503 if Stripe is not configured.
+    """
     if not stripe.api_key:
         return JSONResponse({"error": "Stripe not configured"}, status_code=503)
 
@@ -124,9 +143,19 @@ async def create_final(request: Request) -> JSONResponse:
 
 
 async def webhook(request: Request) -> JSONResponse:
-    """
-    Handle Stripe webhook events.
-    Listens for payment_intent.succeeded and updates the project's payment flags.
+    """Handle Stripe webhook events.
+
+    Listens for ``payment_intent.succeeded`` and flips the matching
+    ``deposit_paid`` or ``final_paid`` flag on the project. On final payment,
+    also fires a delivery-complete email notification.
+
+    Args:
+        request (Request): Raw Stripe event payload with optional
+            ``stripe-signature`` header for signature verification.
+
+    Returns:
+        JSONResponse: 200 ``{"received": True}`` on success; 400 if signature
+        verification fails or the payload is malformed.
     """
     webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
     payload = await request.body()
@@ -187,7 +216,16 @@ async def webhook(request: Request) -> JSONResponse:
 
 
 async def payment_status(request: Request) -> JSONResponse:
-    """Return the current payment status for a project."""
+    """Return the current payment status for a project.
+
+    Args:
+        request (Request): Path param ``project_id`` (str).
+
+    Returns:
+        JSONResponse: 200 ``{"project_id", "deposit_paid", "final_paid",
+        "total_price_usd", "deposit_amount_usd", "final_amount_usd"}``; 404 if
+        the project does not exist.
+    """
     project_id = request.path_params["project_id"]
     project = await _store.store.get_project(project_id)
     if not project:

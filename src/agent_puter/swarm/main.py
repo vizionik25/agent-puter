@@ -78,6 +78,17 @@ async def _root_run(request: Request):
     return await _ceo_app._agent_run_endpoint(request)
 
 async def health(request: Request) -> JSONResponse:
+    """Return the health status and agent-swarm directory for the server.
+
+    Args:
+        request (Request): The incoming Starlette HTTP request (unused but
+            required by the routing signature).
+
+    Returns:
+        JSONResponse: A JSON object with keys ``status``, ``swarm`` (agent
+            URL map), ``api`` (REST route index), ``sandbox``, and feature
+            flags such as ``mcp_enabled`` and ``storage_backend``.
+    """
     return JSONResponse({
         "status": "ok",
         "swarm": {

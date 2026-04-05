@@ -21,7 +21,7 @@ from typing import Optional
 
 import httpx
 
-from ..models import ConsultSession, Project
+from ..models import ConsultSession, Project, User
 
 
 # ---------------------------------------------------------------------------
@@ -33,22 +33,49 @@ class AbstractStore(ABC):
     """Async key-value store for ConsultSession and Project objects."""
 
     @abstractmethod
-    async def get_session(self, session_id: str) -> Optional[ConsultSession]: ...
+    async def get_session(self, session_id: str) -> Optional[ConsultSession]:
+        """Retrieve a ConsultSession by its ID, or None if not found."""
+        ...
 
     @abstractmethod
-    async def set_session(self, session: ConsultSession) -> None: ...
+    async def set_session(self, session: ConsultSession) -> None:
+        """Persist a ConsultSession, overwriting any existing record with the same ID."""
+        ...
 
     @abstractmethod
-    async def list_sessions(self, owner_id: Optional[str] = None) -> list[ConsultSession]: ...
+    async def list_sessions(self, owner_id: Optional[str] = None) -> list[ConsultSession]:
+        """Return all sessions, optionally filtered by owner_id, newest first."""
+        ...
 
     @abstractmethod
-    async def get_project(self, project_id: str) -> Optional[Project]: ...
+    async def get_project(self, project_id: str) -> Optional[Project]:
+        """Retrieve a Project by its ID, or None if not found."""
+        ...
 
     @abstractmethod
-    async def set_project(self, project: Project) -> None: ...
+    async def set_project(self, project: Project) -> None:
+        """Persist a Project, overwriting any existing record with the same ID."""
+        ...
 
     @abstractmethod
-    async def list_projects(self, owner_id: Optional[str] = None) -> list[Project]: ...
+    async def list_projects(self, owner_id: Optional[str] = None) -> list[Project]:
+        """Return all projects, optionally filtered by owner_id, newest first."""
+        ...
+
+    @abstractmethod
+    async def get_user(self, github_id: str) -> Optional[User]:
+        """Retrieve a User by their GitHub ID, or None if not found."""
+        ...
+
+    @abstractmethod
+    async def set_user(self, user: User) -> None:
+        """Persist a User, overwriting any existing record with the same GitHub ID."""
+        ...
+
+    @abstractmethod
+    async def list_users(self) -> list[User]:
+        """Return all users, newest first."""
+        ...
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +89,7 @@ class MemoryStore(AbstractStore):
     def __init__(self) -> None:
         self._sessions: dict[str, ConsultSession] = {}
         self._projects: dict[str, Project] = {}
+        self._users: dict[str, User] = {}
         self._lock = asyncio.Lock()
 
     async def get_session(self, session_id: str) -> Optional[ConsultSession]:
@@ -90,6 +118,16 @@ class MemoryStore(AbstractStore):
             items = [p for p in items if p.owner_id == owner_id]
         return sorted(items, key=lambda p: p.created_at, reverse=True)
 
+    async def get_user(self, github_id: str) -> Optional[User]:
+        return self._users.get(github_id)
+
+    async def set_user(self, user: User) -> None:
+        async with self._lock:
+            self._users[user.github_id] = user
+
+    async def list_users(self) -> list[User]:
+        return sorted(self._users.values(), key=lambda u: u.created_at, reverse=True)
+
 
 # ---------------------------------------------------------------------------
 # JSON-file backend
@@ -110,6 +148,7 @@ class JsonFileStore(AbstractStore):
         self._lock = asyncio.Lock()
         self._sessions: dict[str, ConsultSession] = {}
         self._projects: dict[str, Project] = {}
+        self._users: dict[str, User] = {}
         self._loaded = False
 
     def _ensure_dir(self) -> None:
@@ -126,6 +165,8 @@ class JsonFileStore(AbstractStore):
                     self._sessions[sid] = ConsultSession.model_validate(sdata)
                 for pid, pdata in raw.get("projects", {}).items():
                     self._projects[pid] = Project.model_validate(pdata)
+                for uid, udata in raw.get("users", {}).items():
+                    self._users[uid] = User.model_validate(udata)
             except Exception as exc:
                 print(f"[JsonFileStore] Failed to load {self._path}: {exc}")
         self._loaded = True
@@ -135,6 +176,7 @@ class JsonFileStore(AbstractStore):
         data = {
             "sessions": {sid: s.model_dump(mode="json") for sid, s in self._sessions.items()},
             "projects": {pid: p.model_dump(mode="json") for pid, p in self._projects.items()},
+            "users": {uid: u.model_dump(mode="json") for uid, u in self._users.items()},
         }
         tmp = self._path.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
@@ -177,6 +219,23 @@ class JsonFileStore(AbstractStore):
         if owner_id is not None:
             items = [p for p in items if p.owner_id == owner_id]
         return sorted(items, key=lambda p: p.created_at, reverse=True)
+
+    async def get_user(self, github_id: str) -> Optional[User]:
+        async with self._lock:
+            self._load()
+            return self._users.get(github_id)
+
+    async def set_user(self, user: User) -> None:
+        async with self._lock:
+            self._load()
+            self._users[user.github_id] = user
+            self._save()
+
+    async def list_users(self) -> list[User]:
+        async with self._lock:
+            self._load()
+            items = list(self._users.values())
+        return sorted(items, key=lambda u: u.created_at, reverse=True)
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +343,28 @@ class PuterKVStore(AbstractStore):
                 results.append(p)
         return sorted(results, key=lambda p: p.created_at, reverse=True)
 
+    async def get_user(self, github_id: str) -> Optional[User]:
+        raw = await self._kv_get(f"user:{github_id}")
+        if not raw:
+            return None
+        try:
+            return User.model_validate_json(raw)
+        except Exception:
+            return None
+
+    async def set_user(self, user: User) -> None:
+        await self._kv_set(f"user:{user.github_id}", user.model_dump_json())
+
+    async def list_users(self) -> list[User]:
+        keys = await self._kv_list("user:*")
+        results = []
+        for key in keys:
+            uid = key.removeprefix("user:")
+            u = await self.get_user(uid)
+            if u:
+                results.append(u)
+        return sorted(results, key=lambda u: u.created_at, reverse=True)
+
 
 # ---------------------------------------------------------------------------
 # Factory — select backend from env
@@ -291,13 +372,18 @@ class PuterKVStore(AbstractStore):
 
 
 def make_store() -> AbstractStore:
-    """
-    Build the correct store backend from environment variables.
+    """Build and return the configured store backend.
 
-    STORAGE_BACKEND options:
-      memory    (default) — in-memory, resets on restart
-      json_file           — JSON file at STORAGE_PATH (default: ./data/store.json)
-      puter_kv            — Puter cloud KV store
+    Reads the ``STORAGE_BACKEND`` environment variable to select a backend.
+    Additional variables are consumed by specific backends:
+
+    * ``json_file`` — ``STORAGE_PATH`` (default: ``./data/store.json``)
+    * ``puter_kv``  — ``PUTER_AUTH_TOKEN``, ``PUTER_KV_BASE``
+
+    Returns:
+        AbstractStore: A ready-to-use store instance. One of
+            :class:`MemoryStore`, :class:`JsonFileStore`, or
+            :class:`PuterKVStore` depending on ``STORAGE_BACKEND``.
     """
     backend = os.getenv("STORAGE_BACKEND", "memory").lower()
     if backend == "json_file":

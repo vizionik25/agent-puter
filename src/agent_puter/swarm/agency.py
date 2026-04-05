@@ -32,7 +32,15 @@ from .ceo_agent import BASE_URL
 # ---------------------------------------------------------------------------
 
 def _text_message(text: str) -> dict:
-    """Build a minimal A2A Message with a single TextPart."""
+    """Build a minimal A2A Message with a single TextPart.
+
+    Args:
+        text (str): The plain-text content for the message part.
+
+    Returns:
+        dict: A well-formed A2A message dict with role, kind, messageId,
+            and a single text part.
+    """
     return {
         "role": "user",
         "kind": "message",
@@ -49,7 +57,9 @@ async def _call_agent(base_url: str, prompt: str) -> str:
         base_url: The base URL of the target agent (e.g. "http://localhost:9999/pm").
         prompt:   The plain-text prompt to send.
 
-    Returns the agent's text response, or an empty string on failure.
+    Returns:
+        str: The agent's concatenated text response, or an empty string on
+            network or protocol failure.
     """
     client = A2AClient(base_url=base_url)
     try:
@@ -91,7 +101,15 @@ _AVG_TOKENS_PER_CALL = 2_000
 
 
 def _estimate_call_cost(tokens: int) -> float:
-    """Estimate USD cost for a given token count (assumes 50/50 input/output split)."""
+    """Estimate USD cost for a given token count (assumes 50/50 input/output split).
+
+    Args:
+        tokens (int): Total token count to cost (input + output combined).
+
+    Returns:
+        float: Estimated cost in USD based on the module-level per-million-token
+            rates for input and output.
+    """
     half = tokens / 2
     return (half * _INPUT_COST_PER_MTOK + half * _OUTPUT_COST_PER_MTOK) / 1_000_000
 
@@ -109,6 +127,12 @@ class Agency:
     """
 
     def __init__(self, deps: AgencyDeps) -> None:
+        """Initialize the Agency with its runtime dependency container.
+
+        Args:
+            deps (AgencyDeps): Container holding in-memory state (projects,
+                sessions), LLM config, and QA retry limits.
+        """
         self.deps = deps
 
     # ------------------------------------------------------------------
@@ -120,13 +144,22 @@ class Agency:
         request_text: str,
         client_id: str,
     ) -> dict:
-        """
-        Intake a new client request and create a Project.
+        """Intake a new client request and create a Project.
 
-        1. Sales agent parses the request and produces a brief (via A2A).
-        2. CEO agent allocates a token budget (via A2A).
-        3. PM agent breaks the brief into tasks (via A2A).
-        4. Project is stored in deps.projects and returned.
+        Orchestrates four A2A calls in sequence:
+        1. Sales agent parses the request and produces a project brief.
+        2. CEO agent allocates a token budget.
+        3. PM agent decomposes the brief into a task list.
+        4. Project is stored in ``deps.projects`` and a summary is returned.
+
+        Args:
+            request_text (str): The raw client request describing the project.
+            client_id (str): Unique identifier for the client (e.g. session ID
+                or email).
+
+        Returns:
+            dict: A summary containing ``project_id`` (str), ``status``
+                (ProjectStatus), and ``task_count`` (int).
         """
         print(f"[Agency] Received request from {client_id}: {request_text[:80]}...")
 
@@ -361,6 +394,25 @@ class Agency:
         except Exception as exc:
             project.deployment_status = "failed"
             print(f"[Agency] Auto-deploy failed: {exc}")
+
+        # Auto-push to GitHub if the user authenticated via OAuth
+        if project.github_user_id:
+            await self._push_to_github(project)
+
+    async def _push_to_github(self, project: Project) -> None:
+        """Push delivery files to the owner's GitHub account (best-effort)."""
+        try:
+            from .api.store import store as _data_store
+            from .api.github_delivery import push_project_to_github
+            user = await _data_store.get_user(project.github_user_id)
+            if not user or not user.access_token:
+                return
+            repo_url = await push_project_to_github(user.access_token, user.login, project)
+            project.github_repo_url = repo_url
+            await _data_store.set_project(project)
+            print(f"[Agency] Pushed to GitHub: {repo_url}")
+        except Exception as exc:
+            print(f"[Agency] GitHub push failed (non-fatal): {exc}")
 
 
 # ---------------------------------------------------------------------------
