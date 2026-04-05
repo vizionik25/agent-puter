@@ -1,51 +1,29 @@
 /**
  * app/demo/[id]/page.tsx — Live project demo viewer.
  *
- * Access control:
- *   - Checks GET /api/payments/{id}/status first.
- *   - If deposit_paid is false → shows locked state with link to /pay/{id}/deposit.
- *   - If deposit_paid is true  → fetches GET /api/projects/{id}/demo.
+ * Fetches the demo URL via GET /api/projects/{id}/demo.
+ * Access is controlled by the backend (requires the project to be executed).
  *
  * Rendering modes (determined by the demo_url value):
  *   - URL (starts with "http") → renders an <iframe> sandbox + "Open ↗" link.
- *   - Plain text / notes       → renders a <pre> block (useful for text-only demos).
- *
- * The toolbar always shows a "Pay Balance & Receive →" CTA linking to /pay/{id}/final.
+ *   - Plain text / notes       → renders a <pre> block.
  */
 "use client";
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { demoGet, paymentStatus } from "@/lib/api";
-import Link from "next/link";
+import { demoGet } from "@/lib/api";
 
 export default function DemoPage() {
   const { id } = useParams<{ id: string }>();
   const [demoUrl, setDemoUrl] = useState<string | null>(null);
-  const [depositPaid, setDepositPaid] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    paymentStatus(id).then((ps) => {
-      setDepositPaid(ps.deposit_paid);
-      if (ps.deposit_paid) {
-        return demoGet(id).then((d) => setDemoUrl(d.demo_url));
-      }
-    }).catch((e: Error) => setError(e.message));
+    demoGet(id)
+      .then((d) => setDemoUrl(d.demo_url))
+      .catch((e: Error) => setError(e.message));
   }, [id]);
-
-  if (depositPaid === false) {
-    return (
-      <div className="container" style={{ padding: "4rem 1.5rem", textAlign: "center" }}>
-        <div className="card" style={{ maxWidth: 480, margin: "0 auto", padding: "2rem", textAlign: "center" }}>
-          <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>🔒</div>
-          <h2 style={{ marginBottom: ".75rem", color: "#e2e8f0" }}>Demo locked</h2>
-          <p style={{ marginBottom: "1.5rem" }}>A 20% deposit unlocks the live demo preview.</p>
-          <Link href={`/pay/${id}/deposit`} className="btn btn-primary">Pay Deposit to Unlock →</Link>
-        </div>
-      </div>
-    );
-  }
 
   if (error) {
     return (
@@ -59,9 +37,7 @@ export default function DemoPage() {
     return (
       <div className="container" style={{ padding: "4rem 1.5rem", textAlign: "center" }}>
         <div className="typing" style={{ justifyContent: "center" }}><span /><span /><span /></div>
-        <p style={{ marginTop: "1rem" }}>
-          {depositPaid === null ? "Checking access…" : "Demo is being prepared — check back shortly."}
-        </p>
+        <p style={{ marginTop: "1rem" }}>Demo is being prepared — check back shortly.</p>
       </div>
     );
   }
@@ -89,9 +65,6 @@ export default function DemoPage() {
             Open ↗
           </a>
         )}
-        <Link href={`/pay/${id}/final`} className="btn btn-primary" style={{ padding: ".45rem 1rem", fontSize: ".85rem" }}>
-          Pay Balance & Receive →
-        </Link>
       </div>
 
       {/* Demo viewer */}

@@ -254,11 +254,13 @@ Once both services are running:
 
 1. Open `http://localhost:3000` — landing page should load.
 2. Click **Start Consultation** and fill in your name, email, and a project description.
-3. Chat with the Sales Agent until it acknowledges your requirements.
-4. The session auto-completes and redirects you to `/proposal/{id}`.
-5. Click **Pay Deposit** — use Stripe test card `4242 4242 4242 4242`, any future date, any CVC.
-6. Check `http://localhost:9999/health` for a JSON listing of all agents and feature flags.
-7. Open `http://localhost:3000/admin` and enter your `ADMIN_API_KEY` to see the admin dashboard.
+3. Chat with the Sales Agent until it acknowledges your requirements. The chat auto-completes and redirects to `/proposal/{id}`.
+4. The proposal page shows the execution credit cost. If your credit balance is sufficient, click **Execute Project** to deduct credits and start the agent swarm.
+5. You are redirected to `/status/{id}` which polls every 8 seconds and shows task-by-task progress.
+6. When all tasks are `done` and the project reaches `delivered`, a **View Demo** link appears.
+7. Check `http://localhost:9999/health` for a JSON listing of all agents and feature flags.
+8. Open `http://localhost:3000/billing` to manage your subscription plan and credit balance.
+9. Open `http://localhost:3000/admin` (if `ADMIN_API_KEY` is set) to see the admin dashboard.
 
 ---
 

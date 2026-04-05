@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import CreditBadge from "@/components/CreditBadge";
 
 export const metadata: Metadata = {
   title: "AI Consulting Agency",
@@ -21,7 +22,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <nav className="nav">
           <div className="container nav-inner">
             <a href="/" className="nav-logo">⚡ SwarmAI</a>
-            <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: ".75rem", alignItems: "center" }}>
+              <CreditBadge />
+              <a href="/billing" style={{ fontSize: ".85rem", color: "var(--muted)", textDecoration: "none" }}>
+                Billing
+              </a>
               <a href="/consult" className="btn btn-outline" style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}>
                 Start Consultation
               </a>

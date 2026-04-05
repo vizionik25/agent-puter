@@ -39,9 +39,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # The browser makes API calls through Next.js rewrites — so this is
-        # the *internal* Docker network address of the backend, not localhost.
-        NEXT_PUBLIC_API_URL: "http://backend:9999"
+        # NEXT_PUBLIC_API_URL is intentionally empty so the browser uses
+        # relative /api/* URLs, which Next.js rewrites proxy to the backend.
+        # API_URL (server-side only) is what next.config.ts uses to forward
+        # those rewrite requests to the internal Docker hostname.
+        NEXT_PUBLIC_API_URL: ""
         NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}"
     image: agent-puter/frontend:latest
     container_name: agent_puter_frontend
@@ -49,7 +51,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: "http://backend:9999"
+      NEXT_PUBLIC_API_URL: ""
+      API_URL: "http://backend:9999"
     depends_on:
       backend:
         condition: service_healthy

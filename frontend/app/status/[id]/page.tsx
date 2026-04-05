@@ -1,21 +1,20 @@
 /**
  * app/status/[id]/page.tsx — Project status dashboard.
  *
- * Polls GET /api/projects/{id} and GET /api/payments/{id}/status every 8 seconds
- * to display real-time progress across the five project phases:
+ * Polls GET /api/projects/{id} every 8 seconds to display real-time
+ * progress across the five project phases:
  *   intake → planning → execution → qa → delivered
  *
  * Shows:
  *  - Phase progress bar with step indicators
  *  - Per-task status list (pending / in_progress / review / done / failed)
- *  - Payment status cards (20% deposit, 80% balance)
- *  - Contextual CTAs: Pay Deposit, View Demo, Pay Balance
+ *  - View Demo CTA when project is delivered
  */
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { projectGet, paymentStatus, Project, PaymentStatus } from "@/lib/api";
+import { projectGet, Project } from "@/lib/api";
 import Link from "next/link";
 
 const PHASE_ORDER = ["intake", "planning", "execution", "qa", "delivered"];
@@ -30,12 +29,11 @@ const STATUS_COLOR: Record<string, string> = {
 export default function StatusPage() {
   const { id } = useParams<{ id: string }>();
   const [project, setProject] = useState<Project | null>(null);
-  const [payments, setPayments] = useState<PaymentStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    Promise.all([projectGet(id), paymentStatus(id)])
-      .then(([p, ps]) => { setProject(p); setPayments(ps); })
+    projectGet(id)
+      .then(setProject)
       .catch((e: Error) => setError(e.message));
   }, [id]);
 
@@ -53,7 +51,7 @@ export default function StatusPage() {
     );
   }
 
-  if (!project || !payments) {
+  if (!project) {
     return (
       <div className="container" style={{ padding: "4rem 1.5rem", textAlign: "center" }}>
         <div className="typing" style={{ justifyContent: "center" }}><span /><span /><span /></div>
@@ -68,9 +66,6 @@ export default function StatusPage() {
   const totalTasks = project.tasks.length;
   const taskPct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
 
-  const fmt = (n: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
-
   return (
     <div className="container" style={{ padding: "3rem 1.5rem", maxWidth: 760, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem", marginBottom: "2rem" }}>
@@ -79,23 +74,11 @@ export default function StatusPage() {
           <h1 style={{ fontSize: "1.8rem" }}>{project.name}</h1>
           <p style={{ fontSize: ".9rem", marginTop: ".25rem" }}>{project.description}</p>
         </div>
-        <div style={{ display: "flex", gap: ".75rem", flexWrap: "wrap" }}>
-          {payments.deposit_paid && !payments.final_paid && (
-            <Link href={`/demo/${id}`} className="btn btn-outline" style={{ padding: ".5rem 1rem", fontSize: ".85rem" }}>
-              View Demo
-            </Link>
-          )}
-          {payments.deposit_paid && !payments.final_paid && project.status === "delivered" && (
-            <Link href={`/pay/${id}/final`} className="btn btn-primary" style={{ padding: ".5rem 1rem", fontSize: ".85rem" }}>
-              Pay Balance →
-            </Link>
-          )}
-          {!payments.deposit_paid && (
-            <Link href={`/pay/${id}/deposit`} className="btn btn-primary" style={{ padding: ".5rem 1rem", fontSize: ".85rem" }}>
-              Pay Deposit →
-            </Link>
-          )}
-        </div>
+        {project.status === "delivered" && (
+          <Link href={`/demo/${id}`} className="btn btn-primary" style={{ padding: ".5rem 1rem", fontSize: ".85rem" }}>
+            View Demo →
+          </Link>
+        )}
       </div>
 
       {/* Phase tracker */}
@@ -166,51 +149,6 @@ export default function StatusPage() {
           </div>
         </div>
       )}
-
-      {/* Payment status */}
-      <div className="card">
-        <h3 style={{ marginBottom: "1rem" }}>Payment</h3>
-        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-          <div
-            className="card"
-            style={{
-              flex: 1,
-              minWidth: 160,
-              padding: "1rem",
-              textAlign: "center",
-              borderColor: payments.deposit_paid ? "rgba(34,197,94,.4)" : "var(--border)",
-              background: payments.deposit_paid ? "rgba(34,197,94,.08)" : "var(--surface)",
-            }}
-          >
-            <div style={{ fontSize: "1.5rem", marginBottom: ".4rem" }}>{payments.deposit_paid ? "✅" : "⏳"}</div>
-            <div style={{ fontWeight: 600, color: "var(--text)" }}>20% Deposit</div>
-            {project.proposal && (
-              <div style={{ fontSize: ".85rem", color: "var(--muted)", marginTop: ".25rem" }}>
-                {fmt(project.proposal.deposit_amount_usd)}
-              </div>
-            )}
-          </div>
-          <div
-            className="card"
-            style={{
-              flex: 1,
-              minWidth: 160,
-              padding: "1rem",
-              textAlign: "center",
-              borderColor: payments.final_paid ? "rgba(34,197,94,.4)" : "var(--border)",
-              background: payments.final_paid ? "rgba(34,197,94,.08)" : "var(--surface)",
-            }}
-          >
-            <div style={{ fontSize: "1.5rem", marginBottom: ".4rem" }}>{payments.final_paid ? "✅" : "⏳"}</div>
-            <div style={{ fontWeight: 600, color: "var(--text)" }}>80% Balance</div>
-            {project.proposal && (
-              <div style={{ fontSize: ".85rem", color: "var(--muted)", marginTop: ".25rem" }}>
-                {fmt(project.proposal.final_amount_usd)}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
 
       <p style={{ fontSize: ".75rem", color: "var(--muted)", marginTop: "1rem", textAlign: "center" }}>
         Auto-refreshes every 8 seconds

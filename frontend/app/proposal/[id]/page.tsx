@@ -5,28 +5,35 @@
  *  - Problem statement & solution overview
  *  - Implementation plan
  *  - Deliverables list
- *  - Pricing & timeline grid (estimated hours, ETA, total, deposit)
- *  - CTA button linking to /pay/{id}/deposit
+ *  - Credit cost & balance (replaces the old Stripe deposit CTA)
  *
- * Returns a 404-style error card if the proposal is not yet ready
- * (agency loop still running or not triggered).
+ * Returns a 404-style error card if the proposal is not yet ready.
  */
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { proposalGet, Proposal } from "@/lib/api";
+import { getState, canExecuteProject, deductCredit, estimateProjectCost, PRICING, BillingState, CostEstimate } from "@/lib/billing";
 import Link from "next/link";
 
 export default function ProposalPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [billing, setBilling] = useState<BillingState | null>(null);
+  const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [executing, setExecuting] = useState(false);
 
   useEffect(() => {
     proposalGet(id)
-      .then(setProposal)
+      .then((p) => {
+        setProposal(p);
+        setCostEstimate(estimateProjectCost(p.estimated_hours));
+      })
       .catch((e: Error) => setError(e.message));
+    setBilling(getState());
   }, [id]);
 
   if (error) {
@@ -37,7 +44,7 @@ export default function ProposalPage() {
     );
   }
 
-  if (!proposal) {
+  if (!proposal || !billing || !costEstimate) {
     return (
       <div className="container" style={{ padding: "4rem 1.5rem", textAlign: "center" }}>
         <div className="typing" style={{ justifyContent: "center" }}><span /><span /><span /></div>
@@ -46,8 +53,25 @@ export default function ProposalPage() {
     );
   }
 
-  const fmt = (n: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+  const alreadyExecuted = billing.executedProjects.includes(id);
+  const hasCredits = canExecuteProject(id, costEstimate.totalCredits);
+
+  function handleExecute() {
+    if (!costEstimate) return;
+    setExecuting(true);
+    try {
+      deductCredit(id, costEstimate.totalCredits);
+      router.push(`/status/${id}`);
+    } catch {
+      setExecuting(false);
+    }
+  }
+
+  function fmtTokens(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+    return String(n);
+  }
 
   return (
     <div className="container" style={{ padding: "3rem 1.5rem", maxWidth: 760, margin: "0 auto" }}>
@@ -85,18 +109,13 @@ export default function ProposalPage() {
           </div>
         )}
 
-        {/* Pricing */}
-        <div
-          className="card"
-          style={{ background: "linear-gradient(135deg, rgba(109,40,217,.15), rgba(168,85,247,.08))", borderColor: "rgba(109,40,217,.4)" }}
-        >
-          <h3 style={{ marginBottom: "1rem", color: "#e2e8f0" }}>Pricing & Timeline</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1.25rem" }}>
+        {/* Timeline */}
+        <div className="card">
+          <h3 style={{ marginBottom: "1rem", color: "#a78bfa" }}>Timeline</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
             {[
               { label: "Estimated hours", value: `${proposal.estimated_hours}h` },
               { label: "Delivery ETA", value: `${proposal.delivery_eta_days} days` },
-              { label: "Total Price", value: fmt(proposal.total_price_usd) },
-              { label: "20% Deposit", value: fmt(proposal.deposit_amount_usd) },
             ].map((row) => (
               <div key={row.label} className="card" style={{ padding: "1rem" }}>
                 <div style={{ fontSize: ".8rem", color: "var(--muted)", marginBottom: ".25rem" }}>{row.label}</div>
@@ -104,10 +123,114 @@ export default function ProposalPage() {
               </div>
             ))}
           </div>
-          <p style={{ fontSize: ".85rem", color: "#94a3b8", marginBottom: "1.5rem" }}>{proposal.payment_structure}</p>
-          <Link href={`/pay/${id}/deposit`} className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: ".9rem" }}>
-            Pay {fmt(proposal.deposit_amount_usd)} Deposit to Start →
-          </Link>
+        </div>
+
+        {/* Credit CTA */}
+        <div
+          className="card"
+          style={{ background: "linear-gradient(135deg, rgba(109,40,217,.15), rgba(168,85,247,.08))", borderColor: "rgba(109,40,217,.4)" }}
+        >
+          <h3 style={{ marginBottom: "1rem", color: "#e2e8f0" }}>Execution Cost</h3>
+
+          {/* CPM breakdown table */}
+          <div
+            style={{
+              background: "var(--surface-h)", border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)", overflow: "hidden", marginBottom: "1.25rem",
+              fontSize: ".85rem",
+            }}
+          >
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                  {["Type", "Est. tokens", "Credits / 1M tokens", "Credits"].map((h) => (
+                    <th key={h} style={{ padding: ".5rem .75rem", textAlign: "left", color: "var(--muted)", fontWeight: 500, fontSize: ".78rem" }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                  <td style={{ padding: ".55rem .75rem", color: "var(--text)" }}>Input</td>
+                  <td style={{ padding: ".55rem .75rem", color: "var(--muted)", fontFamily: "monospace" }}>{fmtTokens(costEstimate.inputTokens)}</td>
+                  <td style={{ padding: ".55rem .75rem", color: "var(--muted)", fontFamily: "monospace" }}>{PRICING.inputPerMillion}</td>
+                  <td style={{ padding: ".55rem .75rem", color: "#c4b5fd", fontFamily: "monospace", fontWeight: 600 }}>
+                    {costEstimate.inputCredits.toFixed(2)}
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                  <td style={{ padding: ".55rem .75rem", color: "var(--text)" }}>Output</td>
+                  <td style={{ padding: ".55rem .75rem", color: "var(--muted)", fontFamily: "monospace" }}>{fmtTokens(costEstimate.outputTokens)}</td>
+                  <td style={{ padding: ".55rem .75rem", color: "var(--muted)", fontFamily: "monospace" }}>{PRICING.outputPerMillion}</td>
+                  <td style={{ padding: ".55rem .75rem", color: "#c4b5fd", fontFamily: "monospace", fontWeight: 600 }}>
+                    {costEstimate.outputCredits.toFixed(2)}
+                  </td>
+                </tr>
+                <tr style={{ background: "rgba(109,40,217,.08)" }}>
+                  <td style={{ padding: ".65rem .75rem", fontWeight: 700, color: "var(--text)" }}>Total</td>
+                  <td style={{ padding: ".65rem .75rem", color: "var(--muted)", fontFamily: "monospace" }}>{fmtTokens(costEstimate.totalTokens)}</td>
+                  <td style={{ padding: ".65rem .75rem", color: "var(--muted)", fontSize: ".75rem" }}>
+                    blended {((costEstimate.inputCredits + costEstimate.outputCredits) / (costEstimate.totalTokens / 1_000_000)).toFixed(1)}
+                  </td>
+                  <td style={{ padding: ".65rem .75rem", color: "#a78bfa", fontFamily: "monospace", fontWeight: 700, fontSize: "1.05rem" }}>
+                    {costEstimate.totalCredits}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p style={{ fontSize: ".75rem", color: "var(--muted)", marginBottom: "1.25rem" }}>
+            Estimated from {proposal.estimated_hours}h × {(PRICING.tokensPerHour / 1000).toFixed(0)}K tokens/hr ·
+            {" "}{Math.round(PRICING.inputRatio * 100)}% input / {Math.round((1 - PRICING.inputRatio) * 100)}% output.
+            Based on estimate — actual usage may vary.
+          </p>
+
+          {/* Balance vs cost */}
+          <div style={{ display: "flex", gap: ".75rem", marginBottom: "1.25rem", flexWrap: "wrap" }}>
+            <div className="card" style={{ padding: ".75rem 1rem", flex: 1, minWidth: 130 }}>
+              <div style={{ fontSize: ".75rem", color: "var(--muted)", marginBottom: ".2rem" }}>This project</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "#a78bfa" }}>
+                {costEstimate.totalCredits} credits
+              </div>
+            </div>
+            <div className="card" style={{ padding: ".75rem 1rem", flex: 1, minWidth: 130 }}>
+              <div style={{ fontSize: ".75rem", color: "var(--muted)", marginBottom: ".2rem" }}>Your balance</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: 700, color: billing.credits >= costEstimate.totalCredits ? "#4ade80" : "#f87171" }}>
+                {billing.credits} credits
+              </div>
+            </div>
+          </div>
+
+          {alreadyExecuted ? (
+            <>
+              <p style={{ fontSize: ".85rem", color: "#94a3b8", marginBottom: "1.25rem" }}>
+                This project has already been executed.
+              </p>
+              <Link href={`/status/${id}`} className="btn btn-outline" style={{ width: "100%", justifyContent: "center", padding: ".9rem" }}>
+                View Status →
+              </Link>
+            </>
+          ) : hasCredits ? (
+            <button
+              className="btn btn-primary"
+              style={{ width: "100%", justifyContent: "center", padding: ".9rem", opacity: executing ? .7 : 1 }}
+              onClick={handleExecute}
+              disabled={executing}
+            >
+              {executing ? "Starting…" : `Execute Project — ${costEstimate.totalCredits} credits →`}
+            </button>
+          ) : (
+            <>
+              <p style={{ fontSize: ".85rem", color: "#f87171", marginBottom: "1.25rem" }}>
+                Insufficient credits. You need {costEstimate.totalCredits} but have {billing.credits}.
+              </p>
+              <Link href="/billing" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: ".9rem" }}>
+                Get More Credits →
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -27,7 +27,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . ./
 
 # Build args — injected at build time so Next.js can embed them
-ARG NEXT_PUBLIC_API_URL=http://localhost:9999
+ARG NEXT_PUBLIC_API_URL=""
 ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=""
 
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \

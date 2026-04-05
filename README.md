@@ -4,14 +4,13 @@
 
 # Agent-Puter
 
-**AI Agency Business in a Box**
+**Autonomous AI Consulting Agency — Business in a Box**
 
-*A fully autonomous AI consulting agency — from brief to delivery — powered by a swarm of specialized LLM agents, a Starlette REST API, and a Next.js client portal with Stripe payments.*
+*A fully autonomous AI consulting agency powered by a swarm of specialized LLM agents, a Starlette REST API, and a Next.js client portal with a subscription-credit billing model.*
 
 [![Python](https://img.shields.io/badge/Python-3.14+-3776ab?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![PyPI](https://img.shields.io/pypi/v/agent-puter?style=flat-square&logo=pypi&logoColor=white&color=006dad)](https://pypi.org/project/agent-puter/)
-[![Frontend Repo](https://img.shields.io/badge/frontend-agent--puter--frontend-blueviolet?style=flat-square&logo=github)](https://github.com/vizionik25/agent-puter-frontend)
 [![License: MIT](https://img.shields.io/badge/License-MIT-violet?style=flat-square)](LICENSE)
 [![uv](https://img.shields.io/badge/package%20manager-uv-orange?style=flat-square)](https://github.com/astral-sh/uv)
 
@@ -21,7 +20,7 @@
 
 ## What is Agent-Puter?
 
-Agent-Puter is a **self-contained, production-ready AI consulting agency** you can run on your own server. A client visits the portal, describes their project in plain English, receives an AI-generated proposal with a fixed price, pays a 20% deposit, and the agent swarm autonomously does the work — research, engineering, QA — then hands over a live demo. The client reviews and pays the 80% balance. You collect revenue without writing a single line of project code yourself.
+Agent-Puter is a self-contained, production-ready AI consulting agency platform. A client visits the portal, describes their project in plain English, receives an AI-generated proposal, and uses subscription credits to kick off the autonomous agent swarm. A team of specialized AI agents handles everything — research, engineering, QA — then delivers a live demo.
 
 ```
 Client visits portal
@@ -30,43 +29,42 @@ Client visits portal
 /consult  ←── Sales Agent (live AI chat, scopes the project)
       │
       ▼
-/proposal ←── Proposal (problem/solution, plan, ETA, fixed price)
+/proposal ←── Proposal (problem/solution, plan, ETA, credit cost)
       │
       ▼
-/pay/deposit ←── Stripe — 20% deposit
+Execute with credits ←── Deduct credits from subscription balance
       │
-      ▼  ← Agent Swarm kicks off autonomously ─────────────────────────┐
-      │                                                                  │
-      │  CEO ──► PM ──► Engineer / Researcher ──► QA ──► CEO approves  │
-      │                                                                  │
-      ◄──────────────────────────────────────────────────────────────────┘
-      │
-      ▼
-/demo  ←── Live demo (iframe or link)
+      ▼  ← Agent Swarm kicks off autonomously ──────────────────────┐
+      │                                                               │
+      │  CEO ──► PM ──► Engineer / Researcher ──► QA ──► CEO approves│
+      │                                                               │
+      ◄───────────────────────────────────────────────────────────────┘
       │
       ▼
-/pay/final ←── Stripe — 80% balance → full delivery
+/demo  ←── Auto-deployed sandbox delivery
       │
       ▼
-/status ←── Real-time progress tracker (auto-refreshes)
+/status ←── Real-time task progress tracker (auto-refreshes every 8s)
 ```
 
 ---
 
 ## Architecture
 
+Three components, one `docker compose up`:
+
 ```
 ┌─────────────────────────────────────────────────┐
 │  frontend/          Next.js 16  (port 3000)      │
 │  ├── /                Landing page               │
-│  ├── /consult         AI consultation chat       │
-│  ├── /proposal/[id]   Proposal viewer            │
-│  ├── /pay/[id]/deposit  Stripe 20% deposit       │
-│  ├── /pay/[id]/final    Stripe 80% balance       │
-│  ├── /demo/[id]       Demo viewer (gated)        │
+│  ├── /consult         AI consultation chat (SSE) │
+│  ├── /proposal/[id]   Proposal + credit CTA      │
+│  ├── /billing         Subscription & credit mgmt │
+│  ├── /demo/[id]       Sandbox demo viewer        │
 │  └── /status/[id]     Live progress tracker      │
 │                                                  │
 │  lib/api.ts           Typed REST API client      │
+│  lib/billing.ts       Client-side billing mock   │
 └─────────────────────┬───────────────────────────┘
                       │  REST / JSON
                       ▼
@@ -76,24 +74,29 @@ Client visits portal
 │  ── Client API ──────────────────────────────── │
 │  POST /api/consult/start                         │
 │  POST /api/consult/{id}/message                  │
+│  POST /api/consult/{id}/stream      (SSE)        │
 │  GET  /api/consult/{id}                          │
 │  POST /api/consult/{id}/complete                 │
 │  GET  /api/projects/{id}                         │
 │  GET  /api/projects/{id}/proposal                │
 │  POST /api/projects/{id}/demo-url                │
 │  GET  /api/projects/{id}/demo                    │
+│  GET  /api/projects/{id}/usage                   │
 │  POST /api/payments/deposit                      │
 │  POST /api/payments/final                        │
 │  POST /api/payments/webhook                      │
 │  GET  /api/payments/{id}/status                  │
+│  GET  /api/admin/*   (X-Admin-Key required)      │
 │                                                  │
 │  ── Agent A2A Endpoints ─────────────────────── │
-│  /          CEO   (root A2A + docs)              │
-│  /sales/*   Sales Agent                          │
-│  /pm/*      Project Manager                      │
-│  /researcher/* Researcher                        │
-│  /engineer/*   Engineer                          │
-│  /qa/*         QA Agent                          │
+│  /              CEO Agent (root)                 │
+│  /sales/*       Sales Agent                      │
+│  /pm/*          Project Manager                  │
+│  /product-manager/* Product Manager Agent        │
+│  /researcher/*  Researcher                       │
+│  /engineer/*    Engineer                         │
+│  /qa/*          QA Agent                         │
+│  /deliveries/*  Static sandbox files             │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -101,115 +104,59 @@ Client visits portal
 
 ## The Agent Swarm
 
-| Agent | Role | Key Tools |
-|---|---|---|
-| 🧠 **CEO** | Strategic goals, token budgets, final approval | `allocate_budget`, `approve_delivery` |
-| 💼 **Sales** | Client intake, scope clarification, project brief | `create_project_brief`, `send_proposal` |
-| 📋 **PM** | Task decomposition, milestone tracking | `create_task_list`, `update_task_status` |
-| 🗂️ **Product Manager** | User stories, feature prioritization, acceptance criteria | `write_user_stories`, `prioritize_features` |
-| 🔬 **Researcher** | Web research, document summarization | `web_search`, `summarize_docs` |
-| 🛠️ **Engineer** | Code generation, file I/O, test execution | `write_file`, `read_file`, `run_tests` |
-| ✅ **QA** | Output review, standards enforcement | `review_output`, `check_standards` |
+Seven specialized agents, each a self-contained A2A ASGI app:
 
-All agents are built on the same pattern, this is a must for the LiteLLMModel from pydantic-ai-litellm to work with Puter.js if you arent using Puter.js you can alter the pattern to fit your needs. **NOTE**  pydantic-ai-litellm already handles the OpenAI tool spec conversion for you, so if you are not using an OpenAI compatible API you dont have to worry about the tool spec conversion as its automatically handled.:
+| Agent | Mount | Role | Key Tools |
+|---|---|---|---|
+| CEO | `/` | Strategic goals, token budgets, final approval | `allocate_budget`, `approve_delivery`, `publish_goal` |
+| Sales | `/sales` | Client intake, project brief creation | `create_project_brief`, `send_proposal` |
+| PM | `/pm` | Task decomposition, milestone tracking | `create_task_list`, `update_task_status` |
+| Product Manager | `/product-manager` | User stories, acceptance criteria | `write_user_stories`, `prioritize_features` |
+| Researcher | `/researcher` | Web research, document summarization | `web_search`, `summarize_docs` |
+| Engineer | `/engineer` | Code generation, file I/O, sandbox deploy | `write_file`, `read_file`, `run_tests`, `deploy_to_sandbox` |
+| QA | `/qa` | Output review, PASS/FAIL verdicts | `review_output`, `check_standards` |
 
-```python
-from pydantic_ai import Agent
-from dotenv import load_dotenv
-from pydantic_ai_litellm import LiteLLMModel
-import os
-import asyncio
-
-load_dotenv()
-
-async def main():
-    """This is the main function that will be called by the Puter agent."""
-
-model = LiteLLMModel(
-    model_name=os.getenv("PUTER_MODEL"),
-    api_key=os.getenv("PUTER_AUTH_TOKEN"),
-    api_base=os.getenv("PUTER_API_BASE"),
-    custom_llm_provider="openai"
-)
-
-agent = Agent(
-    model=model,
-    instructions='Be helpful!'
-)
-
-@agent.tool_plain
-def get_weather(city: str) -> str:
-    """Get weather for a city."""
-    return f"Weather in {city}: Sunny, 72°F"
-
-@agent.tool_plain  
-def calculator(expression: str) -> str:
-    """Evaluate a math expression."""
-    return str(eval(expression))
-
-# Each agent owns its A2A ASGI app — called inside the agent file itself.
-# main.py imports and mounts these; it does NOT call .to_a2a() itself.
-app = agent.to_a2a(name="My Agent", url="http://localhost:9999/myagent",
-                   description="What this agent does.")
-
-# --- Inter-agent communication uses A2AClient (fasta2a) ---
-# agency.py dispatches ALL agent calls via HTTP, never via .run() directly.
-from fasta2a.client import A2AClient
-
-async def call_pm(prompt: str) -> str:
-    client = A2AClient(base_url="http://localhost:9999/pm")
-    response = await client.send_message(message={
-        "role": "user", "kind": "message",
-        "messageId": "<uuid>",
-        "parts": [{"kind": "text", "text": prompt}],
-    })
-    # result is Task.status.message.parts or Message.parts
-    ...
-```
-
-### Agency Loop
-
-All inter-agent calls go through the **A2A protocol** via `fasta2a.client.A2AClient`.
-No direct `.run()` calls — every agent is addressed by its mounted HTTP URL.
-
-```
-Client request
-  └─► Sales Agent          (A2A → POST /sales/)
-        └─► CEO Agent       (A2A → POST /)
-              └─► PM Agent  (A2A → POST /pm/)
-                    └─► For each task:
-                          Engineer or Researcher  (A2A → POST /engineer/ or /researcher/)
-                            └─► QA Agent         (A2A → POST /qa/)
-                                  ├─ PASS → next task
-                                  └─ FAIL → retry (max 5) → CEO escalates (A2A → POST /)
-                    └─► CEO approves delivery     (A2A → POST /)
-```
+All inter-agent calls use the **A2A protocol** (HTTP via `fasta2a.A2AClient`). No direct Python `.run()` calls between agents — every agent is addressed only by its mounted HTTP URL.
 
 ---
 
-## Tech Stack
+## Subscription & Credit Model
 
-### Backend
+Project execution is billed in credits drawn from a subscription balance. All billing state is managed client-side via `localStorage` (frontend mock — no backend billing calls).
 
-| Library | Purpose |
+### Plans
+
+| Plan | Price | Credits / Month |
+|---|---|---|
+| Free | $0 | 0 — purchase credits to execute |
+| Starter | $49/month | 30 |
+| Pro | $149/month | 100 |
+| Business | $399/month | 300 |
+
+Credits roll over; they do not expire. Monthly grants accumulate on top of your existing balance.
+
+### Credit Packs (paid plans only)
+
+Top-up credits are available on Starter, Pro, and Business plans. The Free tier cannot purchase packs.
+
+| Pack | Credits | Price |
+|---|---|---|
+| Starter pack | 10 | $12 |
+| Standard pack | 30 | $32 |
+| Power pack | 100 | $99 |
+
+### Per-Million Token Pricing
+
+Credits are calculated from the proposal's estimated hours using the same per-million-token structure as LLM providers:
+
+| Token type | Rate |
 |---|---|
-| [`pydantic-ai`](https://github.com/pydantic/pydantic-ai) | Agent framework with type-safe tool definitions |
-| [`litellm`](https://github.com/BerriAI/litellm) | Universal LLM gateway (OpenAI, Gemini, Anthropic, Puter, …) |
-| [`pydantic-ai-litellm`](https://github.com/mochow13/pydantic-ai-litellm) | LiteLLMModel for integrating LiteLLM with pydantic-ai plus bridges the gap between pydantic-ai and puter.js |
-| [`fasta2a`](https://github.com/pydantic/pydantic-ai) | Pydantic's very own implementation of the Agent-to-Agent (A2A) protocol for inter-agent HTTP |
-| [`starlette`](https://www.starlette.io) | Lightweight ASGI framework for the REST API |
-| [`uvicorn`](https://www.uvicorn.org) | ASGI server |
-| [`stripe`](https://stripe.com/docs/api) | Stripe SDK for PaymentIntents and webhooks |
-| [`puter-python-sdk`](https://puter.com) | Puter cloud platform integration (AI) |
+| Input tokens | 3 credits / 1M tokens |
+| Output tokens | 15 credits / 1M tokens |
+| Throughput estimate | 75,000 tokens / hour of agent work |
+| Input/output ratio | 70% input, 30% output |
 
-### Frontend
-
-| Library | Purpose |
-|---|---|
-| [Next.js 16](https://nextjs.org) | React app router, SSR, API proxy rewrites |
-| [`@stripe/react-stripe-js`](https://stripe.com/docs/stripe-js) | Stripe Elements embedded payment forms |
-| [`lucide-react`](https://lucide.dev) | Icon library |
-| Tailwind CSS | Design system — dark navy + violet, glassmorphism cards |
+Formula: `totalCredits = (inputTokens / 1M × 3) + (outputTokens / 1M × 15)`
 
 ---
 
@@ -218,107 +165,86 @@ Client request
 ### Prerequisites
 
 - [uv](https://github.com/astral-sh/uv) — Python package manager
-- Node.js ≥ 20 and npm (use [nvm](https://github.com/nvm-sh/nvm))
+- Node.js 20+ and npm
+- A [Puter.js](https://puter.com) account for free LLM inference (or any OpenAI-compatible API)
 - A [Stripe](https://stripe.com) account (test keys work fine)
-- A FREE puter.js Auth Token to take advantage of Puter's free inference
 
-### 1. Install the backend
-
-**Option A — install from PyPI (recommended):**
-
-```bash
-# CLI / standalone — installs globally so `agent-puter` is on your PATH (no venv needed)
-uv tool install agent-puter
-
-# Library / project dependency — adds it to your own project's pyproject.toml
-uv add agent-puter
-
-# pip fallback (activate your venv first)
-pip install agent-puter
-```
-
-**Option B — clone and run from source:**
+### 1. Clone and configure
 
 ```bash
 git clone https://github.com/vizionik25/agent-puter.git
 cd agent-puter
-uv sync
+cp .env.example .env
+# Edit .env: fill in PUTER_AUTH_TOKEN, PUTER_MODEL, PUTER_API_BASE, Stripe keys
 ```
 
-### 2. Configure environment
-
-Create a `.env` file in the project root:
-
-```env
-# LLM — use Puter's free inference:
-PUTER_AUTH_TOKEN=your-puterjs-token
-# obtain your token here: https://puter.com/dashboard#account
-# you can refer to https://docs.puter.com/playground/ai-list-model-providers/ for the full
-# list of models to use
-# but I recomend to stay well away from Gemini 3 Pro models, they are not very good at 
-# following instructions and are prone to hallucinations. I have had the best results with 
-# Claude Sonnet 4.5, 4.6, 4.7 and Opus 4.7. Most model providers still use the OpenAI API
-# formatwhich is the reason for 'openai/' in the model name and in the url.
-PUTER_MODEL=openai/claude-sonnet-4-5
-PUTER_API_BASE=https://api.puter.com/puterai/openai/v1
-
-## Or if you perfer to use another provider just change the model and api base to match your
-## provider or another OpenAI compatible API.
-
-# Stripe
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_PUBLISHABLE_KEY=pk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-
-# Frontend
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
-NEXT_PUBLIC_API_URL=http://localhost:9999
-```
-
-### 3. Start the backend (agent swarm + API)
+### 2. Start the backend
 
 ```bash
+uv sync
 uv run agent-puter
 # → http://localhost:9999
-# → http://localhost:9999/docs  (CEO Agent interactive docs)
-# → http://localhost:9999/health
+# → http://localhost:9999/health   (swarm status)
+# → http://localhost:9999/docs     (CEO agent interactive docs)
 ```
 
-Or directly with uvicorn:
+Or install from PyPI and run globally:
 
 ```bash
-uvicorn agent_puter.swarm.main:app --host 0.0.0.0 --port 9999 --reload
+uv tool install agent-puter
+agent-puter
 ```
 
-### 4. Start the frontend
-
-**Option A — clone the frontend repo standalone** (no Python tooling needed):
+### 3. Start the frontend
 
 ```bash
-git clone https://github.com/vizionik25/agent-puter-frontend.git
-cd agent-puter-frontend
+cd frontend
 npm install
 npm run dev
 # → http://localhost:3000
 ```
 
-See the [frontend README](https://github.com/vizionik25/agent-puter-frontend#readme) for full standalone setup, Docker, and Vercel deploy instructions.
-
-**Option B — use `frontend/` from the full monorepo clone:**
+### 4. (Optional) Stripe webhook for local testing
 
 ```bash
-cd frontend
-npm install   # first time only
-npm run dev
-# → http://localhost:3000
+stripe listen --forward-to localhost:9999/api/payments/webhook
 ```
 
-### 5. Configure Stripe webhook (local dev)
+### Docker — full stack
 
 ```bash
-# Install Stripe CLI: https://stripe.com/docs/stripe-cli
-stripe listen --forward-to http://localhost:9999/api/payments/webhook
+cp .env.example .env   # fill in secrets
+docker compose up --build -d
+# Frontend: http://localhost:3000
+# Backend:  http://localhost:9999
 ```
+
+---
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `PUTER_AUTH_TOKEN` | Yes | — | Puter.js session token (used as LLM API key) |
+| `PUTER_MODEL` | Yes | — | LiteLLM model string, e.g. `openai/claude-sonnet-4-5` |
+| `PUTER_API_BASE` | Yes | — | LLM endpoint, e.g. `https://api.puter.com/puterai/openai/v1` |
+| `STRIPE_SECRET_KEY` | No | — | Stripe secret key (`sk_test_...`) |
+| `STRIPE_PUBLISHABLE_KEY` | No | — | Stripe publishable key (`pk_test_...`) |
+| `STRIPE_WEBHOOK_SECRET` | No | — | Stripe webhook signing secret (`whsec_...`) |
+| `NEXT_PUBLIC_API_URL` | No | `""` | Frontend → backend URL. Empty = relative `/api/*` (Docker). Set to `http://localhost:9999` for local dev. |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | No | — | Stripe publishable key for frontend Stripe Elements |
+| `STORAGE_BACKEND` | No | `memory` | `memory`, `json_file`, or `puter_kv` |
+| `STORAGE_PATH` | No | `./data/store.json` | Path for `json_file` backend |
+| `PUTER_KV_BASE` | No | `https://api.puter.com/kv` | Override for `puter_kv` backend endpoint |
+| `ADMIN_API_KEY` | No | — | Protects all `/api/admin/*` routes. Unset = admin disabled. |
+| `AGENCY_API_KEYS` | No | — | Multi-tenancy: `key1:tenant1,key2:tenant2` |
+| `SMTP_HOST` | No | — | SMTP server for email notifications |
+| `SMTP_PORT` | No | `587` | SMTP port |
+| `SMTP_USER` | No | — | SMTP login |
+| `SMTP_PASS` | No | — | SMTP password or app password |
+| `FROM_EMAIL` | No | `SMTP_USER` | Sender address for notifications |
+| `FRONTEND_URL` | No | `http://localhost:3000` | Base URL for email action links |
+| `MCP_SERVER_URL` | No | — | MCP server URL; enables MCP tools on Researcher + Engineer |
 
 ---
 
@@ -327,343 +253,65 @@ stripe listen --forward-to http://localhost:9999/api/payments/webhook
 ```
 agent-puter/
 ├── src/agent_puter/
-│   ├── __init__.py              Entry point
-│   ├── agent-logic-example.py                 Single-agent example (reference)
+│   ├── __init__.py
+│   ├── agent-logic-example.py       Single-agent reference example
 │   └── swarm/
-│       ├── main.py              Starlette app — mounts all agents + API
-│       ├── server.py            uvicorn launcher
-│       ├── agency.py            Agency orchestrator (business loop)
-│       ├── models.py            Pydantic data models (Project, Proposal, Task, …)
-│       ├── base_agent.py        LiteLLMModel factory (shared by all agents)
-│       ├── ceo_agent.py         CEO Agent
-│       ├── sales_agent.py       Sales & Intake Agent
-│       ├── pm_agent.py          Project Manager Agent
-│       ├── researcher_agent.py  Researcher Agent
-│       ├── engineer_agent.py    Engineer Agent
-│       ├── qa_agent.py          QA Agent
+│       ├── main.py                  Starlette app — mounts agents + API
+│       ├── server.py                uvicorn launcher
+│       ├── agency.py                Agency orchestrator (business loop)
+│       ├── models.py                Pydantic data models
+│       ├── base_agent.py            LiteLLMModel factory
+│       ├── middleware.py            Multi-tenancy (X-Agency-Key)
+│       ├── notifications.py         SMTP email notifications
+│       ├── ceo_agent.py
+│       ├── sales_agent.py
+│       ├── pm_agent.py
+│       ├── product_manager_agent.py
+│       ├── researcher_agent.py
+│       ├── engineer_agent.py
+│       ├── qa_agent.py
 │       └── api/
-│           ├── __init__.py      Aggregates all API routes
-│           ├── _store.py        In-memory session/project store
-│           ├── consultation.py  /api/consult/* routes
-│           ├── projects.py      /api/projects/* routes
-│           └── payments.py      /api/payments/* routes (Stripe)
+│           ├── __init__.py          Aggregates all API routes
+│           ├── _store.py            Legacy alias (delegates to store.py)
+│           ├── store.py             Pluggable storage backends
+│           ├── consultation.py      /api/consult/* routes
+│           ├── projects.py          /api/projects/* routes
+│           ├── payments.py          /api/payments/* routes
+│           └── admin.py             /api/admin/* routes
 │
-├── frontend/                    Next.js 16 client portal
-│   │                            Also available as a standalone repo:
-│   │                            github.com/vizionik25/agent-puter-frontend
+├── frontend/
 │   ├── app/
-│   │   ├── layout.tsx           Root layout + nav
-│   │   ├── globals.css          Design system (dark navy + violet)
-│   │   ├── page.tsx             Landing page
-│   │   ├── consult/page.tsx     AI consultation chat
-│   │   ├── proposal/[id]/       Proposal viewer
-│   │   ├── pay/[id]/deposit/    Stripe 20% deposit
-│   │   ├── pay/[id]/final/      Stripe 80% balance
-│   │   ├── demo/[id]/           Demo viewer (gated)
-│   │   └── status/[id]/         Live progress tracker
-│   ├── lib/api.ts               Typed REST API client
-│   └── next.config.ts           API proxy → NEXT_PUBLIC_API_URL
+│   │   ├── layout.tsx               Root layout + nav + CreditBadge
+│   │   ├── page.tsx                 Landing page
+│   │   ├── consult/page.tsx         Consultation chat (SSE streaming)
+│   │   ├── proposal/[id]/page.tsx   Proposal + credit execution CTA
+│   │   ├── billing/page.tsx         Subscription & credit management
+│   │   ├── demo/[id]/page.tsx       Sandbox demo viewer
+│   │   └── status/[id]/page.tsx     Real-time task progress
+│   ├── components/
+│   │   ├── CreditBadge.tsx          Live credit balance in nav
+│   │   └── MockStripeModal.tsx      Simulated payment modal
+│   ├── lib/
+│   │   ├── api.ts                   Typed REST client
+│   │   └── billing.ts               Client-side billing (localStorage)
+│   └── next.config.ts               Standalone output mode
 │
+├── Dockerfile                       Backend multi-stage build
+├── frontend/Dockerfile              Frontend multi-stage build (Node 22)
+├── docker-compose.yml               Full stack
+├── docker-compose.backend.yml       Backend only
 ├── pyproject.toml
-├── .env                         ← create this (not committed)
-└── README.md
+└── .env.example
 ```
 
 ---
 
-## API Reference
-
-### Consultation
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/consult/start` | Start a session. Body: `{client_name, client_email, initial_message}`. Returns `{session_id, reply, status}` |
-| `POST` | `/api/consult/{id}/message` | Send a follow-up message. Body: `{message}`. Returns `{reply, status, project_id?}` |
-| `GET` | `/api/consult/{id}` | Fetch full session transcript |
-| `POST` | `/api/consult/{id}/complete` | **Required** — marks session complete, kicks off agency loop, creates Project + Proposal. Returns `{session_id, project_id, status}` |
-
-### Projects
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/projects/{id}` | Project status, tasks, payment flags |
-| `GET` | `/api/projects/{id}/proposal` | Full proposal (pricing, plan, deliverables) |
-| `POST` | `/api/projects/{id}/demo-url` | Admin: set demo URL. Body: `{demo_url}` |
-| `GET` | `/api/projects/{id}/demo` | Client: fetch demo URL (requires deposit paid) |
-
-### Payments (Stripe)
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/payments/deposit` | Create 20% PaymentIntent. Returns `client_secret` |
-| `POST` | `/api/payments/final` | Create 80% PaymentIntent (requires deposit paid) |
-| `POST` | `/api/payments/webhook` | Stripe webhook handler (`payment_intent.succeeded`) |
-| `GET` | `/api/payments/{id}/status` | `{deposit_paid, final_paid, …}` |
-
-### Agent A2A Endpoints
-
-Each agent exposes the full [A2A protocol](https://github.com/pydantic/pydantic-ai):
-
-| Path | Agent |
-|---|---|
-| `/` or `/ceo/` | CEO Agent |
-| `/sales/` | Sales Agent |
-| `/pm/` | Project Manager |
-| `/product-manager/` | Product Manager |
-| `/researcher/` | Researcher |
-| `/engineer/` | Engineer |
-| `/qa/` | QA Agent |
-
-Interactive docs for each agent: `/docs`, `/sales/docs`, `/pm/docs`, `/product-manager/docs`, etc.
-
----
-
-## Payment Flow
-
-```
-Client                     Frontend              Backend              Stripe
-  │                            │                    │                   │
-  ├── fills consult form ──►  POST /api/consult/start                   │
-  │                            │◄── session_id ─────┤                   │
-  │   (chat with Sales Agent)  │                    │                   │
-  ├── POST /api/consult/{id}/complete               │                   │
-  │                            │  agency loop runs  │                   │
-  │                            │◄── project_id ─────┤                   │
-  │                            │                    │                   │
-  ├── visits /proposal/{id} ──► GET /api/projects/{id}/proposal          │
-  │                            │◄── Proposal ───────┤                   │
-  │                            │                    │                   │
-  ├── clicks "Pay Deposit" ──► POST /api/payments/deposit               │
-  │                            │◄── client_secret ──┤─CreateIntent─────►│
-  │                            │                    │                   │
-  ├── enters card ────────────► stripe.confirmPayment()                 │
-  │                            │                    │◄── webhook ───────┤
-  │                            │                    │  deposit_paid=True │
-  │                            │                    │                   │
-  ├── reviews demo ───────────► GET /api/projects/{id}/demo             │
-  │                            │                    │                   │
-  ├── pays balance ───────────► POST /api/payments/final                │
-  │                            │◄── client_secret ──┤─CreateIntent─────►│
-  │                            │                    │◄── webhook ───────┤
-  │                            │                    │  final_paid=True  │
-  │◄── receives delivery ──────┤                    │                   │
-```
-
----
-
-## Customization
-
-### Swap LLMs
-
-All agents share `src/agent_puter/swarm/base_agent.py`, which constructs a
-[`LiteLLMModel`](https://github.com/pydantic/pydantic-ai) from
-`pydantic-ai-litellm` and passes it to every `pydantic_ai.Agent`.
-
-**`LiteLLMModel` constructor** (from the installed package):
-
-```python
-LiteLLMModel(
-    model_name: str,           # required — litellm model string
-    *,
-    api_key: str | None,       # optional — provider API key
-    api_base: str | None,      # optional — custom endpoint URL
-    custom_llm_provider: str | None,  # optional — force-sets the provider
-    settings: ModelSettings | None,
-)
-```
-
-**How `base_agent.py` wires it** — three env vars are **all required**,
-an `EnvironmentError` is raised at startup if any are missing:
-
-```bash
-# .env
-PUTER_MODEL=openai/claude-sonnet-4-5        # litellm model string
-PUTER_AUTH_TOKEN=your_puter_session_token   # passed as api_key
-PUTER_API_BASE=https://api.puter.com/puterai/openai/v1  # passed as api_base
-```
-
-`custom_llm_provider` is hard-coded to `"openai"` in `base_agent.py` because
-Puter exposes an OpenAI-compatible endpoint. To switch to a different provider,
-update `make_model()` directly — for example, to call Anthropic natively:
-
-```python
-return LiteLLMModel(
-    model_name="claude-3-5-sonnet-20241022",
-    api_key=os.getenv("ANTHROPIC_API_KEY"),
-    # api_base and custom_llm_provider not needed — litellm auto-detects Anthropic
-)
-```
-
-### Add a new agent
-
-1. Copy `sales_agent.py` as a template.
-2. Define your system prompt and tools.
-3. At the bottom of your new file, call `.to_a2a()`:
-   ```python
-   from .ceo_agent import BASE_URL
-   my_app = my_agent.to_a2a(name="My Agent", url=f"{BASE_URL}/myagent",
-                             description="What this agent does.")
-   ```
-4. In `main.py`, import and mount it:
-   ```python
-   from .my_agent import my_agent, my_app as _my_app
-   # add to lifespan context managers:
-   async with _my_app.task_manager:
-       ...
-   # add to routes:
-   Mount("/myagent", app=_my_app),
-   ```
-5. Add to `_AGENT_URLS` in `agency.py` so `A2AClient` can dispatch to it:
-   ```python
-   "myagent": f"{BASE_URL}/myagent",
-   ```
-
-### Persist data
-
-The in-memory store (`api/_store.py`) is two plain dicts — `sessions` and
-`projects` — that are reset on every restart. For production, replace them
-with a durable store (Redis, PostgreSQL, Puter KV, etc.).
-
----
-
-## Docker Deployment
-
-> **Recommended for production.** All services run in isolated containers with
-> minimal, non-root images.
-
-### Prerequisites
-
-```bash
-cp .env.example .env   # fill in PUTER_AUTH_TOKEN, STRIPE keys, etc.
-```
-
-**Docker file layout:**
-
-```
-agent-puter/
-├── Dockerfile                   # backend (Python 3.14 + uv)
-├── docker-compose.yml           # full stack (backend + frontend)
-├── docker-compose.backend.yml   # backend only
-└── frontend/
-    ├── Dockerfile               # frontend (Next.js 16 standalone)
-    └── docker-compose.yml       # frontend only
-```
-
-> [!IMPORTANT]
-> `NEXT_PUBLIC_API_URL` must be set **before** building the frontend image — Next.js
-> embeds it at build time. Use `http://backend:9999` for the full-stack compose, or
-> your public API URL for separate deployments.
-
----
-
-### Option 1 — Full stack on one machine
-
-Spins up both the Python backend (port 9999) and Next.js frontend (port 3000)
-on a shared Docker bridge network. The frontend waits for the backend health-check
-before starting.
-
-```bash
-docker compose up --build -d
-```
-
-| Service | URL |
-|---|---|
-| Frontend | http://localhost:3000 |
-| Backend API | http://localhost:9999 |
-| CEO Agent A2A | http://localhost:9999/ |
-| Sales Agent A2A | http://localhost:9999/sales/ |
-| PM Agent A2A | http://localhost:9999/pm/ |
-
----
-
-### Option 2 — Backend only
-
-Use when the frontend is deployed to Vercel / Netlify or run locally with `npm run dev`.
-
-```bash
-docker compose -f docker-compose.backend.yml up --build -d
-```
-
-Set `NEXT_PUBLIC_API_URL` in the frontend's environment to point at the
-running backend (e.g. `https://api.yourdomain.com`).
-
----
-
-### Option 3 — Frontend only
-
-Use when the backend is already running on another host.
-
-```bash
-cd frontend/
-NEXT_PUBLIC_API_URL=https://api.yourdomain.com \
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_... \
-docker compose up --build -d
-```
-
----
-
-### Common commands
-
-```bash
-# View logs
-docker compose logs -f backend
-docker compose logs -f frontend
-
-# Rebuild after code changes
-docker compose up --build -d
-
-# Stop everything
-docker compose down
-
-# Stop and remove volumes
-docker compose down -v
-```
-
----
-
-### Stripe webhook in production
-
-Point your Stripe webhook to `https://yourdomain.com/api/payments/webhook`
-(`payment_intent.succeeded` event). Set `STRIPE_WEBHOOK_SECRET=whsec_...` in `.env`.
-
-```bash
-# Local testing (requires Stripe CLI)
-stripe listen --forward-to localhost:9999/api/payments/webhook
-```
-
----
-
-## Development
-
-```bash
-# Install deps
-uv sync
-
-# Run backend with auto-reload
-uvicorn agent_puter.swarm.main:app --reload --port 9999
-
-# Run frontend
-cd frontend && npm run dev
-
-# Type-check frontend
-cd frontend && npm run build
-
-# Stripe webhook forwarding (local dev)
-stripe listen --forward-to localhost:9999/api/payments/webhook
-```
-
----
-
-## Roadmap
-
-- [x] **Puter KV persistence** — pluggable store: in-memory / JSON file / Puter KV (`STORAGE_BACKEND`)
-- [x] **Admin dashboard** — `/admin` UI + `/api/admin/*` routes (requires `ADMIN_API_KEY`)
-- [x] **Email notifications** — SMTP emails on proposal ready, demo ready, delivery confirmed
-- [x] **Streaming chat** — SSE endpoint `POST /api/consult/{id}/stream` + streaming UI
-- [x] **Multi-tenancy** — `X-Agency-Key` header maps keys to tenant namespaces (`AGENCY_API_KEYS`)
-- [x] **LLM cost tracking** — per-project token + cost tracking; `GET /api/projects/{id}/usage`
-- [x] **Automated delivery** — Engineer `deploy_to_sandbox` tool; static `/deliveries/` served at runtime
-- [x] **MCP integration** — `MCPServerHTTP` toolset on Researcher + Engineer agents (`MCP_SERVER_URL`)
+## Docs
+
+- [Architecture](docs/architecture.md) — system design, agent communication, data flow, storage
+- [API Reference](docs/api-reference.md) — every endpoint with request/response tables
+- [Getting Started](docs/getting-started.md) — local dev setup, first consultation walkthrough
+- [Deployment](docs/deployment.md) — Docker Compose, environment reference, Stripe production
 
 ---
 

@@ -9,7 +9,7 @@
  *   import { consultStart, projectGet, depositIntent } from "@/lib/api";
  */
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:9999";
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 /**
  * Generic fetch wrapper.
@@ -121,11 +121,7 @@ export interface Project {
   updated_at: string;
 }
 
-/** Payment flags for a project, returned by GET /api/payments/{id}/status. */
-export interface PaymentStatus {
-  deposit_paid: boolean;
-  final_paid: boolean;
-}
+
 
 // ── Consultation ─────────────────────────────────────────────────────────────
 
@@ -208,39 +204,6 @@ export const proposalGet = (id: string) =>
 export const demoGet = (id: string) =>
   req<{ demo_url: string }>(`/api/projects/${id}/demo`);
 
-// ── Payments ─────────────────────────────────────────────────────────────────
-
-/**
- * Create a Stripe PaymentIntent for the 20% deposit.
- * Returns a client_secret to pass to stripe.confirmPayment().
- *
- * @param body.project_id - Project to pay the deposit for.
- */
-export const depositIntent = (body: { project_id: string }) =>
-  req<{ client_secret: string; intent_id: string }>("/api/payments/deposit", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-
-/**
- * Create a Stripe PaymentIntent for the 80% final balance.
- * Returns 400 if the deposit has not been paid yet.
- *
- * @param body.project_id - Project to pay the final balance for.
- */
-export const finalIntent = (body: { project_id: string }) =>
-  req<{ client_secret: string; intent_id: string }>("/api/payments/final", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-
-/**
- * Fetch the current payment status (deposit_paid + final_paid flags).
- *
- * @param id - Project ID.
- */
-export const paymentStatus = (id: string) =>
-  req<PaymentStatus>(`/api/payments/${id}/status`);
 
 // ── Streaming ─────────────────────────────────────────────────────────────────
 

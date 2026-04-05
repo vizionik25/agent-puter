@@ -12,9 +12,9 @@ const features = [
     desc: "From consultation to working deliverable in days, not months. No sprint planning theatre.",
   },
   {
-    icon: "🔒",
-    title: "Pay on Results",
-    desc: "20% deposit, then review a live demo before you pay the remaining 80%. Zero risk.",
+    icon: "💳",
+    title: "Flexible Credits",
+    desc: "Subscribe for a monthly credit allowance or top up as you go. No unlimited tier — just what you need.",
   },
   {
     icon: "📊",
@@ -25,9 +25,9 @@ const features = [
 
 const steps = [
   { n: "01", title: "Consult", desc: "Chat with our AI Sales agent. Describe your project in plain English." },
-  { n: "02", title: "Proposal", desc: "Receive a detailed proposal with scope, delivery estimate, and fixed price." },
-  { n: "03", title: "Deposit", desc: "Pay a 20% non-refundable deposit to kick off the agent swarm." },
-  { n: "04", title: "Demo & Pay", desc: "Review a live demo. Happy? Pay the 80% balance and receive delivery." },
+  { n: "02", title: "Proposal", desc: "Receive a detailed proposal with scope, delivery estimate, and timeline." },
+  { n: "03", title: "Credits", desc: "Use one credit from your subscription allowance to kick off the agent swarm." },
+  { n: "04", title: "Delivered", desc: "Agents execute, QA reviews, and you receive a live demo when it's done." },
 ];
 
 export default function LandingPage() {
@@ -72,7 +72,7 @@ export default function LandingPage() {
             }}
           >
             A swarm of specialised AI agents handles everything — from discovery to
-            delivery. Fixed pricing. Pay on results.
+            delivery. Subscription credits. No surprises.
           </p>
           <div style={{ display: "flex", gap: "1rem", justifyContent: "center", flexWrap: "wrap" }}>
             <Link href="/consult" className="btn btn-primary" style={{ fontSize: "1.05rem", padding: "0.9rem 2rem" }}>

@@ -867,16 +867,10 @@ Reads SSE `text/event-stream` response chunk by chunk using `ReadableStream`. Ca
 | `demoGet` | `(id)` | `{ demo_url: string }` |
 | `usageGet` | `(id)` | `UsageReport` |
 
-#### Payment functions
-
-| Function | Signature | Returns |
-|----------|-----------|---------|
-| `depositIntent` | `(body: { project_id })` | `{ client_secret, intent_id }` |
-| `finalIntent` | `(body: { project_id })` | `{ client_secret, intent_id }` |
-| `paymentStatus` | `(id)` | `PaymentStatus` |
-
 #### TypeScript interfaces
 
-`ConsultMessage · ConsultSession · ConsultStartResponse · ConsultMessageResponse · Proposal · TaskItem · Project · PaymentStatus · UsageReport`
+`ConsultMessage · ConsultSession · ConsultStartResponse · ConsultMessageResponse · Proposal · TaskItem · Project · UsageReport`
 
 `UsageReport`: `{ project_id, tokens_used, llm_requests, llm_cost_usd, budget_tokens, budget_remaining, task_breakdown: Array<{ task_id, title, tokens_used, cost_usd }> }`
+
+Note: The backend Stripe payment endpoints (`/api/payments/*`) are not currently called by the frontend. Credit deduction is handled entirely in `lib/billing.ts` client-side.

@@ -1,6 +1,61 @@
 # Architecture
 
-Agent-Puter runs as a single Starlette process on port 9999. It serves the REST API consumed by the Next.js frontend, all seven A2A agent endpoints, and static sandbox files for automated delivery. All inter-agent calls travel over HTTP using the A2A protocol — there are no direct Python `.run()` calls between agents.
+Agent-Puter is structured as three loosely-coupled components that communicate over HTTP.
+
+---
+
+## System Diagram
+
+```
+Browser
+  │
+  │  http://localhost:3000
+  ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Next.js 16 Frontend  (port 3000)                                │
+│                                                                  │
+│  Pages                        Client-side libraries              │
+│  /                 landing    lib/api.ts      REST client        │
+│  /consult          chat SSE   lib/billing.ts  localStorage mock  │
+│  /proposal/[id]    CTA        components/CreditBadge.tsx         │
+│  /billing          plans      components/MockStripeModal.tsx     │
+│  /demo/[id]        iframe                                        │
+│  /status/[id]      polling                                       │
+│                                                                  │
+│  next.config.ts  output:standalone                               │
+└────────────────────────────────┬─────────────────────────────────┘
+                                 │  fetch /api/*  (relative URLs)
+                                 │  Docker: proxy via API_URL env var
+                                 │  Local dev: NEXT_PUBLIC_API_URL=http://localhost:9999
+                                 ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Starlette Backend  (port 9999)                                  │
+│                                                                  │
+│  ── REST API routes ───────────────────────────────────────── │
+│  /api/consult/*       consultation.py                            │
+│  /api/projects/*      projects.py                                │
+│  /api/payments/*      payments.py + Stripe SDK                   │
+│  /api/admin/*         admin.py  (X-Admin-Key)                    │
+│                                                                  │
+│  ── Agent A2A apps (fasta2a) ──────────────────────────────── │
+│  /              CEO Agent        ceo_agent.py                    │
+│  /sales         Sales Agent      sales_agent.py                  │
+│  /pm            PM Agent         pm_agent.py                     │
+│  /product-manager  Product Mgr   product_manager_agent.py        │
+│  /researcher    Researcher       researcher_agent.py             │
+│  /engineer      Engineer         engineer_agent.py               │
+│  /qa            QA Agent         qa_agent.py                     │
+│                                                                  │
+│  /deliveries/*    StaticFiles — auto-deployed sandbox HTML       │
+│                                                                  │
+│  Store: MemoryStore | JsonFileStore | PuterKVStore               │
+└──────────────────────────────────────────────────────────────────┘
+                                 │
+                                 │  HTTPS  (LiteLLM)
+                                 ▼
+                    Puter.js OpenAI-compatible API
+                    (or any OpenAI-compatible endpoint)
+```
 
 ---
 
@@ -11,12 +66,10 @@ Agent-Puter runs as a single Starlette process on port 9999. It serves the REST 
 │  Browser                                                     │
 │  Next.js 16 — port 3000                                     │
 │  ├── /consult            Chat (SSE streaming)               │
-│  ├── /proposal/[id]      View proposal                      │
-│  ├── /pay/[id]/deposit   Stripe 20% deposit form            │
-│  ├── /pay/[id]/final     Stripe 80% balance form            │
-│  ├── /demo/[id]          Live demo (iframe, gated)          │
-│  ├── /status/[id]        Progress dashboard (polls 8s)      │
-│  └── /admin              Admin dashboard + project detail   │
+│  ├── /proposal/[id]      Proposal + credit execution CTA    │
+│  ├── /billing            Subscription & credit management   │
+│  ├── /demo/[id]          Live demo (iframe)                 │
+│  └── /status/[id]        Progress dashboard (polls 8s)      │
 └────────────────────┬────────────────────────────────────────┘
                      │  JSON REST / SSE  (NEXT_PUBLIC_API_URL)
                      ▼
@@ -289,28 +342,53 @@ All data lives in the `AbstractStore` — two namespaced collections of `Consult
 
 ---
 
-## Payment Flow
+## Billing Mock System
+
+All billing state is frontend-only. No backend billing endpoints exist. State is persisted in `localStorage` under the key `agentputer_billing`.
+
+**State shape (`BillingState`):**
+
+```typescript
+{
+  tierId: "free" | "starter" | "pro" | "business",
+  credits: number,
+  cycleStart: string,        // ISO date of last monthly grant
+  ledger: CreditLedgerEntry[],
+  executedProjects: string[] // idempotency: project IDs already charged
+}
+```
+
+**Monthly reset:** `getState()` detects when `cycleStart` is more than 30 days ago and auto-grants the tier's `creditsPerMonth`, adding a `monthly_grant` ledger entry.
+
+**Credit pack purchases:** `purchasePack(packId)` throws if `tierId === "free"`. A paid subscription is required to top up.
+
+**Project execution:** `deductCredit(projectId, cost)` is idempotent. Calling it again for the same `projectId` is a no-op. Throws `"Insufficient credits"` if balance is low.
+
+**Cost formula (from `billing.ts`):**
 
 ```
-Frontend                    Backend                 Stripe
-   │                           │                      │
-   ├─POST /api/payments/deposit─►─stripe.PaymentIntent.create─►│
-   │◄─── client_secret ─────────┤◄────────────────────────────┤
-   │                           │                      │
-   ├─stripe.confirmPayment() ──────────────────────────────────►│
-   │                           │◄─── webhook (succeeded) ──────┤
-   │                           │  project.deposit_paid = True  │
-   │                           │  → email: notify_demo_ready() │
-   │                           │                      │
-   │   (client views demo)     │                      │
-   │                           │                      │
-   ├─POST /api/payments/final ──►─stripe.PaymentIntent.create─►│
-   │◄─── client_secret ─────────┤◄────────────────────────────┤
-   ├─stripe.confirmPayment() ──────────────────────────────────►│
-   │                           │◄─── webhook (succeeded) ──────┤
-   │                           │  project.final_paid = True    │
-   │                           │  → email: notify_delivery()   │
+totalTokens   = estimatedHours × 75,000
+inputTokens   = totalTokens × 0.70
+outputTokens  = totalTokens × 0.30
+totalCredits  = (inputTokens / 1,000,000 × 3) + (outputTokens / 1,000,000 × 15)
 ```
+
+Rates: 3 credits / 1M input tokens, 15 credits / 1M output tokens.
+
+---
+
+## Stripe Legacy Endpoints
+
+The backend still exposes four Stripe endpoints for deposit/final payment flows (`/api/payments/*`). These are not currently wired into the frontend credit flow but remain available for operators who want to integrate real payment collection:
+
+```
+POST /api/payments/deposit       → creates 20% PaymentIntent
+POST /api/payments/final         → creates 80% PaymentIntent (requires deposit_paid)
+POST /api/payments/webhook       → handles payment_intent.succeeded, sets deposit_paid/final_paid
+GET  /api/payments/{id}/status   → returns deposit_paid, final_paid flags
+```
+
+The `Project` model tracks `deposit_paid`, `final_paid`, `stripe_deposit_intent_id`, and `stripe_final_intent_id` for this flow.
 
 ---
 
